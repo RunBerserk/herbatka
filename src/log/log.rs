@@ -1,3 +1,5 @@
+use crate::log::message::{LogEntry, Message};
+
 pub struct Log {
     entries: Vec<LogEntry>,
 }
@@ -29,5 +31,69 @@ impl Log {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::log::message::Message;
+
+    use super::*;
+    use std::collections::HashMap;
+    use std::time::SystemTime;
+
+    #[test]
+    fn append_returns_offset_zero_for_first_message() {
+        let mut log = Log::new();
+
+        let msg = Message {
+            key: None,
+            payload: b"hello".to_vec(),
+            timestamp: SystemTime::now(),
+            headers: HashMap::new(),
+        };
+
+        let offset = log.append(msg);
+
+        assert_eq!(offset, 0);
+        assert_eq!(log.len(), 1);
+    }
+
+    #[test]
+    fn read_returns_correct_message_by_offset() {
+        let mut log = Log::new();
+        let offset = log.append(Message {
+            key: None,
+            payload: b"hello".to_vec(),
+            timestamp: SystemTime::now(),
+            headers: HashMap::new(),
+        });
+        let msg = log.read(offset).expect("message should exist");
+        assert_eq!(msg.payload, b"hello".to_vec());
+    }
+
+    #[test]
+    fn messages_are_returned_in_order() {
+        let mut log = Log::new();
+
+        let offset1 = log.append(Message {
+            key: None,
+            payload: b"first".to_vec(),
+            timestamp: SystemTime::now(),
+            headers: HashMap::new(),
+        });
+
+        let offset2 = log.append(Message {
+            key: None,
+            payload: b"second".to_vec(),
+            timestamp: SystemTime::now(),
+            headers: HashMap::new(),
+        });
+
+        let m1 = log.read(offset1).expect("first message should exist");
+        let m2 = log.read(offset2).expect("second message should exist");
+
+        assert_eq!(m1.payload, b"first".to_vec());
+        assert_eq!(m2.payload, b"second".to_vec());
     }
 }
