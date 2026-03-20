@@ -1,3 +1,4 @@
+mod broker;
 mod log;
 
 fn main() {
