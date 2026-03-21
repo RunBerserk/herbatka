@@ -42,6 +42,16 @@ impl Broker {
         let log = self.topics.get(topic).ok_or(BrokerError::UnknownTopic)?;
         Ok(log.read(offset))
     }
+
+    pub fn fetch_batch(
+        &self,
+        topic: &str,
+        offset: u64,
+        limit: usize,
+    ) -> Result<Vec<&Message>, BrokerError> {
+        let log = self.topics.get(topic).ok_or(BrokerError::UnknownTopic)?;
+        Ok(log.read_range(offset, limit))
+    }
 }
 
 #[cfg(test)]

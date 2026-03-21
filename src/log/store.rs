@@ -18,6 +18,14 @@ impl Log {
         offset
     }
 
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     pub fn read(&self, offset: u64) -> Option<&Message> {
         // None if out of range
         self.entries
@@ -25,12 +33,19 @@ impl Log {
             .map(|entry| &entry.message)
     }
 
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+    pub fn read_range(&self, offset: u64, limit: usize) -> Vec<&Message> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let start = offset as usize;
+        if start >= self.entries.len() {
+            return Vec::new();
+        }
+        let end = start.saturating_add(limit).min(self.entries.len());
+        self.entries[start..end]
+            .iter()
+            .map(|entry| &entry.message)
+            .collect()
     }
 }
 
