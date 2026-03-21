@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::log::store::Log;
 use crate::log::message::Message;
+use crate::log::store::Log;
 
 pub struct Broker {
     // topic -> log
@@ -41,5 +41,51 @@ impl Broker {
     pub fn fetch(&self, topic: &str, offset: u64) -> Result<Option<&Message>, BrokerError> {
         let log = self.topics.get(topic).ok_or(BrokerError::UnknownTopic)?;
         Ok(log.read(offset))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::log::message::Message;
+    use std::collections::HashMap;
+    use std::time::SystemTime;
+
+    fn msg(payload: &[u8]) -> Message {
+        Message {
+            key: None,
+            payload: payload.to_vec(),
+            timestamp: SystemTime::now(),
+            headers: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn topics_are_isolated() {
+        //GIVEN
+        let mut broker = Broker::new();
+
+        broker.create_topic("A".into()).unwrap();
+        broker.create_topic("B".into()).unwrap();
+
+        //WHEN
+        broker.produce("A", msg(b"only-a")).unwrap();
+        broker.produce("B", msg(b"only-b")).unwrap();
+
+        //THEN
+        let from_a = broker
+            .fetch("A", 0)
+            .unwrap()
+            .expect("A should have offset 0");
+        let from_b = broker
+            .fetch("B", 0)
+            .unwrap()
+            .expect("B should have offset 0");
+
+        assert_eq!(from_a.payload, b"only-a".to_vec());
+        assert_eq!(from_b.payload, b"only-b".to_vec());
+
+        // A's log should not see B's message at offset 0
+        assert_ne!(from_a.payload, b"only-b".to_vec());
     }
 }
