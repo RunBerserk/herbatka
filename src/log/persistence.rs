@@ -9,34 +9,22 @@ const NONE_KEY_SENTINEL: u32 = u32::MAX;
 // ---------- Public API ----------
 
 pub fn encode_message(message: &Message) -> io::Result<Vec<u8>> {
+    let timestamp = encode_timestamp(message);
+    let key = encode_key(message);
+    let payload = encode_payload(message);
+    let headers = encode_headers(message);
+
     let mut buf = Vec::new();
+    buf.extend_from_slice(&timestamp);
+    buf.extend_from_slice(&key);
+    buf.extend_from_slice(&payload);
+    buf.extend_from_slice(&headers);
 
-    // timestamp (u64 millis since epoch)
-    let ts = message
-        .timestamp
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::from_millis(0))
-        .as_millis() as u64;
-    buf.extend_from_slice(&ts.to_le_bytes());
+    Ok(buf)
+}
 
-    // key
-    match &message.key {
-        None => {
-            buf.extend_from_slice(&NONE_KEY_SENTINEL.to_le_bytes());
-        }
-        Some(key) => {
-            let len = key.len() as u32;
-            buf.extend_from_slice(&len.to_le_bytes());
-            buf.extend_from_slice(key);
-        }
-    }
-
-    // payload
-    let payload_len = message.payload.len() as u32;
-    buf.extend_from_slice(&payload_len.to_le_bytes());
-    buf.extend_from_slice(&message.payload);
-
-    // headers
+fn encode_headers(message: &Message) -> Vec<u8> {
+    let mut buf = Vec::new();
     let header_count = message.headers.len() as u32;
     buf.extend_from_slice(&header_count.to_le_bytes());
 
@@ -51,40 +39,49 @@ pub fn encode_message(message: &Message) -> io::Result<Vec<u8>> {
         buf.extend_from_slice(v);
     }
 
-    Ok(buf)
+    buf
+}
+
+fn encode_payload(message: &Message) -> Vec<u8> {
+    let mut buf = Vec::new();
+    let payload_len = message.payload.len() as u32;
+    buf.extend_from_slice(&payload_len.to_le_bytes());
+    buf.extend_from_slice(&message.payload);
+    buf
+}
+
+fn encode_key(message: &Message) -> Vec<u8> {
+    let mut buf = Vec::new();
+    match &message.key {
+        None => {
+            buf.extend_from_slice(&NONE_KEY_SENTINEL.to_le_bytes());
+        }
+        Some(key) => {
+            let len = key.len() as u32;
+            buf.extend_from_slice(&len.to_le_bytes());
+            buf.extend_from_slice(key);
+        }
+    }
+    buf
+}
+
+fn encode_timestamp(message: &Message) -> Vec<u8> {
+    let ts = message
+        .timestamp
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::from_millis(0))
+        .as_millis() as u64;
+
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&ts.to_le_bytes());
+    buf
 }
 
 pub fn decode_message(mut data: &[u8]) -> io::Result<Message> {
-    // timestamp
-    let ts = read_u64(&mut data)?;
-    let timestamp = UNIX_EPOCH + Duration::from_millis(ts);
-
-    // key
-    let key_len = read_u32(&mut data)?;
-    let key = if key_len == NONE_KEY_SENTINEL {
-        None
-    } else {
-        Some(read_bytes(&mut data, key_len as usize)?)
-    };
-
-    // payload
-    let payload_len = read_u32(&mut data)? as usize;
-    let payload = read_bytes(&mut data, payload_len)?;
-
-    // headers
-    let header_count = read_u32(&mut data)?;
-    let mut headers = HashMap::new();
-
-    for _ in 0..header_count {
-        let k_len = read_u32(&mut data)? as usize;
-        let key_str = String::from_utf8(read_bytes(&mut data, k_len)?)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8 key"))?;
-
-        let v_len = read_u32(&mut data)? as usize;
-        let value = read_bytes(&mut data, v_len)?;
-
-        headers.insert(key_str, value);
-    }
+    let timestamp = decode_timestamp(&mut data)?;
+    let key = decode_key(&mut data)?;
+    let payload = decode_payload(&mut data)?;
+    let headers = decode_headers(&mut data)?;
 
     Ok(Message {
         key,
@@ -92,6 +89,43 @@ pub fn decode_message(mut data: &[u8]) -> io::Result<Message> {
         timestamp,
         headers,
     })
+}
+
+fn decode_timestamp(data: &mut &[u8]) -> io::Result<std::time::SystemTime> {
+    let ts = read_u64(data)?;
+    Ok(UNIX_EPOCH + Duration::from_millis(ts))
+}
+
+fn decode_key(data: &mut &[u8]) -> io::Result<Option<Vec<u8>>> {
+    let key_len = read_u32(data)?;
+    if key_len == NONE_KEY_SENTINEL {
+        return Ok(None);
+    }
+
+    Ok(Some(read_bytes(data, key_len as usize)?))
+}
+
+fn decode_payload(data: &mut &[u8]) -> io::Result<Vec<u8>> {
+    let payload_len = read_u32(data)? as usize;
+    read_bytes(data, payload_len)
+}
+
+fn decode_headers(data: &mut &[u8]) -> io::Result<HashMap<String, Vec<u8>>> {
+    let header_count = read_u32(data)?;
+    let mut headers = HashMap::new();
+
+    for _ in 0..header_count {
+        let k_len = read_u32(data)? as usize;
+        let key_str = String::from_utf8(read_bytes(data, k_len)?)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8 key"))?;
+
+        let v_len = read_u32(data)? as usize;
+        let value = read_bytes(data, v_len)?;
+
+        headers.insert(key_str, value);
+    }
+
+    Ok(headers)
 }
 
 // ---------- File helpers ----------
