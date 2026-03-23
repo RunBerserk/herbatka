@@ -25,18 +25,11 @@ pub fn encode_message(message: &Message) -> io::Result<Vec<u8>> {
 
 fn encode_headers(message: &Message) -> Vec<u8> {
     let mut buf = Vec::new();
-    let header_count = message.headers.len() as u32;
-    buf.extend_from_slice(&header_count.to_le_bytes());
+    push_u32(&mut buf, message.headers.len() as u32);
 
-    for (k, v) in &message.headers {
-        let k_bytes = k.as_bytes();
-        let k_len = k_bytes.len() as u32;
-        buf.extend_from_slice(&k_len.to_le_bytes());
-        buf.extend_from_slice(k_bytes);
-
-        let v_len = v.len() as u32;
-        buf.extend_from_slice(&v_len.to_le_bytes());
-        buf.extend_from_slice(v);
+    for (key, value) in &message.headers {
+        push_len_prefixed_bytes(&mut buf, key.as_bytes());
+        push_len_prefixed_bytes(&mut buf, value);
     }
 
     buf
@@ -44,9 +37,7 @@ fn encode_headers(message: &Message) -> Vec<u8> {
 
 fn encode_payload(message: &Message) -> Vec<u8> {
     let mut buf = Vec::new();
-    let payload_len = message.payload.len() as u32;
-    buf.extend_from_slice(&payload_len.to_le_bytes());
-    buf.extend_from_slice(&message.payload);
+    push_len_prefixed_bytes(&mut buf, &message.payload);
     buf
 }
 
@@ -54,12 +45,10 @@ fn encode_key(message: &Message) -> Vec<u8> {
     let mut buf = Vec::new();
     match &message.key {
         None => {
-            buf.extend_from_slice(&NONE_KEY_SENTINEL.to_le_bytes());
+            push_u32(&mut buf, NONE_KEY_SENTINEL);
         }
         Some(key) => {
-            let len = key.len() as u32;
-            buf.extend_from_slice(&len.to_le_bytes());
-            buf.extend_from_slice(key);
+            push_len_prefixed_bytes(&mut buf, key);
         }
     }
     buf
@@ -75,6 +64,15 @@ fn encode_timestamp(message: &Message) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&ts.to_le_bytes());
     buf
+}
+
+fn push_len_prefixed_bytes(buf: &mut Vec<u8>, bytes: &[u8]) {
+    push_u32(buf, bytes.len() as u32);
+    buf.extend_from_slice(bytes);
+}
+
+fn push_u32(buf: &mut Vec<u8>, n: u32) {
+    buf.extend_from_slice(&n.to_le_bytes());
 }
 
 pub fn decode_message(mut data: &[u8]) -> io::Result<Message> {
