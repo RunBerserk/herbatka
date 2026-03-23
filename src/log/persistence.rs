@@ -185,3 +185,80 @@ fn read_bytes(data: &mut &[u8], len: usize) -> io::Result<Vec<u8>> {
     *data = rest;
     Ok(bytes.to_vec())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_message, encode_message};
+    use crate::log::message::Message;
+    use std::collections::HashMap;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn encode_decode_roundtrip_json_payload() {
+        // create Message
+        let mut headers = HashMap::new();
+        headers.insert("content-type".to_string(), b"application/json".to_vec());
+
+        let original = Message {
+            key: Some(b"car-42-json".to_vec()),
+            payload: br#"{"speed":123}"#.to_vec(),
+            // use exact millisecond value to match encoder precision
+            timestamp: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
+            headers,
+        };
+
+        // encode
+        let encoded = encode_message(&original).expect("encode should succeed");
+
+        // decode
+        let decoded = decode_message(&encoded).expect("decode should succeed");
+
+        // assert equality (field-by-field)
+        assert_eq!(decoded.key, original.key);
+        assert_eq!(decoded.payload, original.payload);
+        assert_eq!(decoded.timestamp, original.timestamp);
+        assert_eq!(decoded.headers, original.headers);
+    }
+
+    #[test]
+    fn encode_decode_roundtrip_protobuf_payload() {
+        // create Message
+        let mut headers = HashMap::new();
+        headers.insert("content-type".to_string(), b"application/protobuf".to_vec());
+        // Example protobuf wire bytes (just raw bytes for test purposes)
+        let proto_payload = vec![0x08, 0x96, 0x01, 0x12, 0x05, b'h', b'e', b'l', b'l', b'o'];
+        let original = Message {
+            key: Some(b"car-23-proto".to_vec()),
+            payload: proto_payload,
+            // encoder stores millis, so use exact millis here
+            timestamp: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
+            headers,
+        };
+        // encode
+        let encoded = encode_message(&original).expect("encode should succeed");
+        // decode
+        let decoded = decode_message(&encoded).expect("decode should succeed");
+        // assert equality
+        assert_eq!(decoded.key, original.key);
+        assert_eq!(decoded.payload, original.payload);
+        assert_eq!(decoded.timestamp, original.timestamp);
+        assert_eq!(decoded.headers, original.headers);
+    }
+
+    #[test]
+    fn encode_decode_roundtrip_empty_edge_values() {
+        // empty / edge values
+        let original = Message {
+            key: None,           // no key
+            payload: Vec::new(), // empty payload
+            timestamp: UNIX_EPOCH + Duration::from_millis(0),
+            headers: HashMap::new(), // empty headers
+        };
+        let encoded = encode_message(&original).expect("encode should succeed");
+        let decoded = decode_message(&encoded).expect("decode should succeed");
+        assert_eq!(decoded.key, original.key);
+        assert_eq!(decoded.payload, original.payload);
+        assert_eq!(decoded.timestamp, original.timestamp);
+        assert_eq!(decoded.headers, original.headers);
+    }
+}
