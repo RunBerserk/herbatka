@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn encode_decode_roundtrip_json_payload() {
-        // create Message
+        //GIVEN
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), b"application/json".to_vec());
 
@@ -207,13 +207,12 @@ mod tests {
             headers,
         };
 
-        // encode
+        //WHEN
         let encoded = encode_message(&original).expect("encode should succeed");
 
-        // decode
         let decoded = decode_message(&encoded).expect("decode should succeed");
 
-        // assert equality (field-by-field)
+        //THEN
         assert_eq!(decoded.key, original.key);
         assert_eq!(decoded.payload, original.payload);
         assert_eq!(decoded.timestamp, original.timestamp);
@@ -222,7 +221,7 @@ mod tests {
 
     #[test]
     fn encode_decode_roundtrip_protobuf_payload() {
-        // create Message
+        //GIVEN
         let mut headers = HashMap::new();
         headers.insert("content-type".to_string(), b"application/protobuf".to_vec());
         // Example protobuf wire bytes (just raw bytes for test purposes)
@@ -234,11 +233,12 @@ mod tests {
             timestamp: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
             headers,
         };
-        // encode
+
+        //WHEN
         let encoded = encode_message(&original).expect("encode should succeed");
-        // decode
         let decoded = decode_message(&encoded).expect("decode should succeed");
-        // assert equality
+
+        //THEN
         assert_eq!(decoded.key, original.key);
         assert_eq!(decoded.payload, original.payload);
         assert_eq!(decoded.timestamp, original.timestamp);
@@ -247,18 +247,60 @@ mod tests {
 
     #[test]
     fn encode_decode_roundtrip_empty_edge_values() {
-        // empty / edge values
+        //GIVEN
         let original = Message {
             key: None,           // no key
             payload: Vec::new(), // empty payload
             timestamp: UNIX_EPOCH + Duration::from_millis(0),
             headers: HashMap::new(), // empty headers
         };
+
+        //WHEN
         let encoded = encode_message(&original).expect("encode should succeed");
         let decoded = decode_message(&encoded).expect("decode should succeed");
+
+        //THEN
         assert_eq!(decoded.key, original.key);
         assert_eq!(decoded.payload, original.payload);
         assert_eq!(decoded.timestamp, original.timestamp);
         assert_eq!(decoded.headers, original.headers);
+    }
+
+    #[test]
+    fn encode_decode_roundtrip_headers_multiple_and_varied_sizes() {
+        //GIVEN
+        let mut headers = HashMap::new();
+        headers.insert("a".to_string(), b"x".to_vec()); // tiny
+        headers.insert("content-type".to_string(), b"application/protobuf".to_vec()); // medium
+        headers.insert(
+            "x-very-long-header-name-for-size-test".to_string(),
+            vec![0u8; 256], // larger binary value
+        );
+        let original = Message {
+            key: Some(b"car-headers-test".to_vec()),
+            payload: b"payload".to_vec(),
+            timestamp: UNIX_EPOCH + Duration::from_millis(1_700_000_000_555),
+            headers,
+        };
+
+        //WHEN
+        let encoded = encode_message(&original).expect("encode should succeed");
+        let decoded = decode_message(&encoded).expect("decode should succeed");
+
+        //THEN
+        assert_eq!(decoded.headers, original.headers);
+        assert_eq!(decoded.headers.len(), 3);
+        assert_eq!(decoded.headers.get("a"), Some(&b"x".to_vec()));
+        assert_eq!(
+            decoded.headers.get("content-type"),
+            Some(&b"application/protobuf".to_vec())
+        );
+        assert_eq!(
+            decoded
+                .headers
+                .get("x-very-long-header-name-for-size-test")
+                .map(Vec::len),
+            Some(256)
+        );
     }
 }
