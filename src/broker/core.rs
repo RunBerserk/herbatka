@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::fs::File;
+use std::io;
+use std::path::Path;
 
 use crate::log::message::Message;
 use crate::log::store::Log;
@@ -31,6 +34,9 @@ impl Broker {
     }
 
     pub fn produce(&mut self, topic: &str, message: Message) -> Result<u64, BrokerError> {
+        // 1) persist to disk first (map io error -> BrokerError::Persistence(...))
+        // 2) append to in-memory log
+        // 3) return offset
         let log = self
             .topics
             .get_mut(topic)
@@ -51,6 +57,14 @@ impl Broker {
     ) -> Result<Vec<&Message>, BrokerError> {
         let log = self.topics.get(topic).ok_or(BrokerError::UnknownTopic)?;
         Ok(log.read_range(offset, limit))
+    }
+
+    fn load_topic_log(path: &Path) -> io::Result<Log> {
+        match File::open(path) {
+            Ok(mut f) => Log::load_from_reader(&mut f),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Log::new()),
+            Err(e) => Err(e),
+        }
     }
 }
 

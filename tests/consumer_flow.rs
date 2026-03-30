@@ -1,4 +1,4 @@
-use herbatka::broker::core::Broker; // fix path to match your lib
+use herbatka::broker::core::Broker;
 use herbatka::log::message::Message;
 use std::collections::HashMap;
 use std::time::SystemTime;

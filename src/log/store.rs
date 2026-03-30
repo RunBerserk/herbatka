@@ -1,4 +1,13 @@
-use crate::log::message::{LogEntry, Message};
+use std::{
+    fs::{OpenOptions, create_dir_all},
+    io::{self, Read},
+    path::Path,
+};
+
+use crate::log::{
+    message::{LogEntry, Message},
+    persistence::{read_message, write_message},
+};
 
 pub struct Log {
     entries: Vec<LogEntry>,
@@ -47,12 +56,27 @@ impl Log {
             .map(|entry| &entry.message)
             .collect()
     }
+
+    pub fn load_from_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
+        let mut log = Self::new();
+        while let Some(message) = read_message(reader)? {
+            log.append(message);
+        }
+        Ok(log)
+    }
 }
 
 impl Default for Log {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub fn append_to_topic_file(base_dir: &Path, topic: &str, message: &Message) -> io::Result<()> {
+    create_dir_all(base_dir)?;
+    let path = base_dir.join(format!("{topic}.log"));
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    write_message(&mut file, message)
 }
 
 #[cfg(test)]
