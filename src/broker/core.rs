@@ -9,7 +9,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::log::message::Message;
-use crate::log::store::Log;
+use crate::log::store::{append_to_topic_file, Log};
 
 pub struct Broker {
     // topic -> log
@@ -56,11 +56,12 @@ impl Broker {
     }
 
     pub fn produce(&mut self, topic: &str, message: Message) -> Result<u64, BrokerError> {
-        // Disk append is not wired on the produce path yet; only the in-memory log is updated.
+        // Durability: append-only writes to the topic file; fsync policy is not implemented yet.
         let log = self
             .topics
             .get_mut(topic)
             .ok_or(BrokerError::UnknownTopic)?;
+        append_to_topic_file(&self.data_dir, topic, &message).map_err(BrokerError::Io)?;
         Ok(log.append(message))
     }
 
