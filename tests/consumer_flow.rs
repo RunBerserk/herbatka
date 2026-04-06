@@ -5,7 +5,8 @@
 use herbatka::broker::core::Broker;
 use herbatka::log::message::Message;
 use std::collections::HashMap;
-use std::time::SystemTime;
+use std::fs::create_dir_all;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn message(payload: &[u8]) -> Message {
     Message {
@@ -18,8 +19,17 @@ fn message(payload: &[u8]) -> Message {
 
 #[test]
 fn consumer_drains_topic_in_order() {
-    //GIVEN
-    let mut broker = Broker::new();
+    //GIVEN — isolated data_dir so a leftover `data/logs/events.log` cannot affect this test.
+    let dir = std::env::temp_dir().join(format!(
+        "herbatka_consumer_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    create_dir_all(&dir).unwrap();
+    let mut broker = Broker::with_data_dir(dir);
     broker.create_topic("events".into()).unwrap();
 
     broker.produce("events", message(b"m1")).unwrap();

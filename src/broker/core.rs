@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::log::message::Message;
 use crate::log::store::Log;
@@ -14,19 +14,34 @@ use crate::log::store::Log;
 pub struct Broker {
     // topic -> log
     topics: HashMap<String, Log>,
+    /// Base directory for per-topic `*.log` files (see `topic_log_path`).
+    data_dir: PathBuf,
 }
 
 #[derive(Debug)]
 pub enum BrokerError {
     TopicAlreadyExists,
     UnknownTopic,
+    Io(io::Error),
 }
 
 impl Broker {
     pub fn new() -> Self {
         Self {
             topics: HashMap::new(),
+            data_dir: PathBuf::from("data/logs"),
         }
+    }
+
+    pub fn with_data_dir(data_dir: PathBuf) -> Self {
+        Self {
+            topics: HashMap::new(),
+            data_dir,
+        }
+    }
+
+    fn topic_log_path(&self, topic: &str) -> PathBuf {
+        self.data_dir.join(format!("{topic}.log"))
     }
 
     pub fn create_topic(&mut self, topic: String) -> Result<(), BrokerError> {
@@ -34,14 +49,14 @@ impl Broker {
             return Err(BrokerError::TopicAlreadyExists);
         }
 
-        self.topics.insert(topic, Log::new());
+        let path = self.topic_log_path(&topic);
+        let log = Self::load_topic_log(&path).map_err(BrokerError::Io)?;
+        self.topics.insert(topic, log);
         Ok(())
     }
 
     pub fn produce(&mut self, topic: &str, message: Message) -> Result<u64, BrokerError> {
-        // 1) persist to disk first (map io error -> BrokerError::Persistence(...))
-        // 2) append to in-memory log
-        // 3) return offset
+        // Disk append is not wired on the produce path yet; only the in-memory log is updated.
         let log = self
             .topics
             .get_mut(topic)
@@ -84,7 +99,8 @@ mod tests {
     use super::*;
     use crate::log::message::Message;
     use std::collections::HashMap;
-    use std::time::SystemTime;
+    use std::fs::create_dir_all;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn msg(payload: &[u8]) -> Message {
         Message {
@@ -95,10 +111,23 @@ mod tests {
         }
     }
 
+    fn isolated_broker() -> Broker {
+        let dir = std::env::temp_dir().join(format!(
+            "herbatka_topics_isolated_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        create_dir_all(&dir).unwrap();
+        Broker::with_data_dir(dir)
+    }
+
     #[test]
     fn topics_are_isolated() {
         //GIVEN
-        let mut broker = Broker::new();
+        let mut broker = isolated_broker();
 
         broker.create_topic("A".into()).unwrap();
         broker.create_topic("B".into()).unwrap();
