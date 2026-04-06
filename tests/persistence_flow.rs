@@ -1,3 +1,7 @@
+//! Integration tests for message persistence flow.
+//!
+//! Verifies framed write/read roundtrips in memory and on real files under `data/logs`.
+
 use herbatka::log::message::Message;
 use herbatka::log::persistence::{read_message, write_message};
 use std::collections::HashMap;

@@ -1,3 +1,8 @@
+//! Broker core orchestration.
+//!
+//! Maps topics to in-memory logs and exposes produce/fetch APIs.
+//! Coordinates topic-level runtime behavior; persistence format is handled in `log::persistence`.
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;

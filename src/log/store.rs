@@ -1,3 +1,8 @@
+//! In-memory append-only log state.
+//!
+//! Owns entries and offset-based reads; broker uses it as runtime state.
+//! Recovery can replay persisted messages into this structure.
+
 use std::{
     fs::{OpenOptions, create_dir_all},
     io::{self, Read},

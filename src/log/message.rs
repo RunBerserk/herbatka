@@ -1,3 +1,8 @@
+//! Message and log entry domain types.
+//!
+//! `Message` stores payload and metadata.
+//! `LogEntry` pairs a message with its monotonic per-topic offset.
+
 use std::{collections::HashMap, time::SystemTime};
 
 pub struct Message {

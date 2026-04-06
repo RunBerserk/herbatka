@@ -1,3 +1,7 @@
+//! Integration tests for consumer-style broker reads.
+//!
+//! Verifies ordered batch fetching and offset progression using the broker API.
+
 use herbatka::broker::core::Broker;
 use herbatka::log::message::Message;
 use std::collections::HashMap;
@@ -14,6 +18,7 @@ fn message(payload: &[u8]) -> Message {
 
 #[test]
 fn consumer_drains_topic_in_order() {
+    //GIVEN
     let mut broker = Broker::new();
     broker.create_topic("events".into()).unwrap();
 
@@ -21,6 +26,7 @@ fn consumer_drains_topic_in_order() {
     broker.produce("events", message(b"m2")).unwrap();
     broker.produce("events", message(b"m3")).unwrap();
 
+    //WHEN
     let mut next_offset = 0u64;
     let mut seen = Vec::new();
 
@@ -39,7 +45,7 @@ fn consumer_drains_topic_in_order() {
 
         next_offset += batch.len() as u64;
     }
-
+    //THEN
     assert_eq!(seen, vec![b"m1".to_vec(), b"m2".to_vec(), b"m3".to_vec()]);
     assert_eq!(next_offset, 3); // high-water: next read would be at 3 (empty)
 }

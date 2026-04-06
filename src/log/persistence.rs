@@ -1,3 +1,8 @@
+//! Binary persistence format for `Message`.
+//!
+//! Encodes/decodes messages and reads/writes length-framed records to `Read`/`Write`.
+//! This module handles bytes and stream I/O; broker decides topic paths and file lifecycle.
+
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::time::{Duration, UNIX_EPOCH};
