@@ -56,7 +56,7 @@ impl Broker {
     }
 
     pub fn produce(&mut self, topic: &str, message: Message) -> Result<u64, BrokerError> {
-        // Durability: append-only writes to the topic file; fsync policy is not implemented yet.
+        // Durability: append-only writes to the topic file; each append flushes and fsyncs it.
         let log = self
             .topics
             .get_mut(topic)

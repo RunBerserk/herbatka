@@ -5,7 +5,7 @@
 
 use std::{
     fs::{OpenOptions, create_dir_all},
-    io::{self, Read},
+    io::{self, Read, Write},
     path::Path,
 };
 
@@ -81,7 +81,10 @@ pub fn append_to_topic_file(base_dir: &Path, topic: &str, message: &Message) -> 
     create_dir_all(base_dir)?;
     let path = base_dir.join(format!("{topic}.log"));
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    write_message(&mut file, message)
+    write_message(&mut file, message)?;
+    file.flush()?;
+    file.sync_all()?;
+    Ok(())
 }
 
 #[cfg(test)]
