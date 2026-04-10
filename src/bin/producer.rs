@@ -5,11 +5,15 @@ use std::env;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;
 
+use herbatka::observability;
+use tracing::error;
+
 const USAGE: &str = "usage: producer <addr> <topic> <payload>";
 
 fn main() {
+    observability::init();
     if let Err(e) = run() {
-        eprintln!("{e}");
+        error!("{e}");
         std::process::exit(1);
     }
 }

@@ -19,13 +19,15 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - First manual end-to-end test (e.g. via netcat)
 - Simple CLI producer (send messages over TCP)
 - Simple CLI consumer (fetch loop)
+- End-to-end pipeline: external client -> broker -> fetch
+- Basic observability (logs / debug output)
 
 ## In Progress
 
 
 ## Next Up
 
-- End-to-end pipeline: external client -> broker -> fetch
+
 - Basic observability (logs / debug output)
 
 ## Later (TODO, not now)

@@ -5,11 +5,15 @@ use std::env;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;
 
+use herbatka::observability;
+use tracing::error;
+
 const USAGE: &str = "usage: consumer <addr> <topic> <start_offset>";
 
 fn main() {
+    observability::init();
     if let Err(e) = run() {
-        eprintln!("{e}");
+        error!("{e}");
         std::process::exit(1);
     }
 }
@@ -53,7 +57,11 @@ fn drain_fetch_loop(addr: &str, topic: &str, mut offset: u64) -> Result<(), Stri
     let mut stream =
         TcpStream::connect(addr).map_err(|e| format!("connect failed to {addr}: {e}"))?;
 
-    let mut reader = BufReader::new(stream.try_clone().map_err(|e| format!("clone failed: {e}"))?);
+    let mut reader = BufReader::new(
+        stream
+            .try_clone()
+            .map_err(|e| format!("clone failed: {e}"))?,
+    );
 
     loop {
         let line = read_fetch_response_line(&mut stream, &mut reader, topic, offset)?;
@@ -107,10 +115,7 @@ enum FetchLineOutcome {
     /// End of drain (`NONE`).
     Done,
     /// One message; next fetch uses `next_offset`.
-    Message {
-        payload: String,
-        next_offset: u64,
-    },
+    Message { payload: String, next_offset: u64 },
 }
 
 fn handle_fetch_line(trimmed: &str) -> Result<FetchLineOutcome, String> {

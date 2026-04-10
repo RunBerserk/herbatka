@@ -99,7 +99,9 @@ fn tcp_produce_multi_then_fetch_drain_in_order() {
     let mut offset = 0u64;
     loop {
         let req = format!("FETCH t {offset}\n");
-        client.write_all(req.as_bytes()).expect("write should succeed");
+        client
+            .write_all(req.as_bytes())
+            .expect("write should succeed");
         client.flush().expect("flush should succeed");
         let mut line = String::new();
         reader.read_line(&mut line).expect("read should succeed");

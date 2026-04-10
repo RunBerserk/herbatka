@@ -109,7 +109,10 @@ mod tests {
 
     #[test]
     fn format_responses() {
-        assert_eq!(format_response(&Response::OkOffset(3)), "OK 3\n".to_string());
+        assert_eq!(
+            format_response(&Response::OkOffset(3)),
+            "OK 3\n".to_string()
+        );
         assert_eq!(
             format_response(&Response::Message {
                 offset: 4,

@@ -7,24 +7,26 @@ use std::time::SystemTime;
 use crate::broker::core::{Broker, BrokerError};
 use crate::log::message::Message;
 use crate::tcp::protocol::{Request, Response, format_response, parse_request};
+use tracing::{debug, error, info, warn};
 
 pub fn run(addr: &str, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
     let listener = TcpListener::bind(addr)?;
-    println!("herbatka tcp listening on {addr}");
+    info!(%addr, "herbatka tcp listening");
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 if let Err(e) = handle_client(stream, &broker) {
-                    eprintln!("client handling error: {e}");
+                    error!("client handling error: {e}");
                 }
             }
-            Err(e) => eprintln!("accept error: {e}"),
+            Err(e) => warn!("accept error: {e}"),
         }
     }
     Ok(())
 }
 
 pub fn handle_client(mut stream: TcpStream, broker: &Arc<Mutex<Broker>>) -> io::Result<()> {
+    debug!(peer = ?stream.peer_addr(), "connected");
     let reader_stream = stream.try_clone()?;
     let mut reader = BufReader::new(reader_stream);
     let mut line = String::new();

@@ -9,7 +9,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::log::message::Message;
-use crate::log::store::{append_to_topic_file, Log};
+use crate::log::store::{Log, append_to_topic_file};
 
 pub struct Broker {
     // topic -> log

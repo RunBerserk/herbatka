@@ -4,4 +4,5 @@
 
 pub mod broker;
 pub mod log;
+pub mod observability;
 pub mod tcp;
