@@ -14,12 +14,13 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Recovery on restart (per topic, via replay)
 - Append after restart (no overwrite)
 - Integration tests for persistence + recovery
-
-## In Progress
-
 - Minimal TCP interface (server + basic protocol)
 - Define simple command format (PRODUCE / FETCH)
 - First manual end-to-end test (e.g. via netcat)
+
+## In Progress
+
+
 
 ## Next Up
 
