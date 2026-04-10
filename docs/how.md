@@ -8,16 +8,16 @@ High-level strategy.
 ## Architecture
 Main components and their responsibilities.
 
--Car events simulation(later also 1x real IOT device, with real problems)
--Ingestion Layer 
--event bus with seperated channels, quic+protobuf
-  -heartbeat , low-priority stream
-  -controll (ack,error), reliable, ordered stream
-  -payload(eg. telemetry), high-throughput stream, can tolerate some loss under pressure
--stream processor
--gateway
--ui
--storage
+- Car events simulation (later also 1x real IoT device, with real problems)
+- Ingestion layer
+- Event bus with separated channels (QUIC + Protobuf)
+  - heartbeat: low-priority stream
+  - control (ack, error): reliable, ordered stream
+  - payload (e.g., telemetry): high-throughput stream, can tolerate some loss under pressure
+- Stream processor
+- Gateway
+- UI
+- Storage
 
 
 
