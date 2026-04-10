@@ -17,15 +17,14 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Minimal TCP interface (server + basic protocol)
 - Define simple command format (PRODUCE / FETCH)
 - First manual end-to-end test (e.g. via netcat)
+- Simple CLI producer (send messages over TCP)
+- Simple CLI consumer (fetch loop)
 
 ## In Progress
-
-- Simple CLI producer (send messages over TCP)
 
 
 ## Next Up
 
-- Simple CLI consumer (fetch loop)
 - End-to-end pipeline: external client -> broker -> fetch
 - Basic observability (logs / debug output)
 

@@ -1,3 +1,6 @@
+//! Minimal TCP client: sends one `PRODUCE` line to the broker and prints the response.
+//! Usage: `producer <addr> <topic> <payload>` (see `USAGE`).
+
 use std::env;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;

@@ -10,6 +10,7 @@ use crate::tcp::protocol::{Request, Response, format_response, parse_request};
 
 pub fn run(addr: &str, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
     let listener = TcpListener::bind(addr)?;
+    println!("herbatka tcp listening on {addr}");
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
