@@ -20,11 +20,11 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 
 ## In Progress
 
+- Simple CLI producer (send messages over TCP)
 
 
 ## Next Up
 
-- Simple CLI producer (send messages over TCP)
 - Simple CLI consumer (fetch loop)
 - End-to-end pipeline: external client -> broker -> fetch
 - Basic observability (logs / debug output)
