@@ -9,27 +9,43 @@ use std::{
     path::Path,
 };
 
+use crate::config::FsyncPolicy;
 use crate::log::{
     message::{LogEntry, Message},
-    persistence::{read_message, write_message},
+    persistence::{encode_message, read_message, write_message},
 };
 
 pub struct Log {
+    base_offset: u64,
     entries: Vec<LogEntry>,
 }
 
 impl Log {
     pub fn new() -> Self {
+        Self::with_base_offset(0)
+    }
+
+    pub fn with_base_offset(base_offset: u64) -> Self {
         Self {
+            base_offset,
             entries: Vec::new(),
         }
     }
 
     pub fn append(&mut self, message: Message) -> u64 {
         // returns assigned offset
-        let offset = self.entries.len() as u64;
+        let offset = self.next_offset();
         self.entries.push(LogEntry { offset, message });
         offset
+    }
+
+    pub fn drop_prefix(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let dropped = count.min(self.entries.len());
+        self.entries.drain(0..dropped);
+        self.base_offset += dropped as u64;
     }
 
     pub fn len(&self) -> usize {
@@ -42,16 +58,21 @@ impl Log {
 
     pub fn read(&self, offset: u64) -> Option<&Message> {
         // None if out of range
-        self.entries
-            .get(offset as usize)
-            .map(|entry| &entry.message)
+        if offset < self.base_offset {
+            return None;
+        }
+        let index = (offset - self.base_offset) as usize;
+        self.entries.get(index).map(|entry| &entry.message)
     }
 
     pub fn read_range(&self, offset: u64, limit: usize) -> Vec<&Message> {
         if limit == 0 {
             return Vec::new();
         }
-        let start = offset as usize;
+        if offset < self.base_offset {
+            return Vec::new();
+        }
+        let start = (offset - self.base_offset) as usize;
         if start >= self.entries.len() {
             return Vec::new();
         }
@@ -62,8 +83,24 @@ impl Log {
             .collect()
     }
 
+    pub fn next_offset(&self) -> u64 {
+        self.base_offset + self.entries.len() as u64
+    }
+
+    pub fn base_offset(&self) -> u64 {
+        self.base_offset
+    }
+
     pub fn load_from_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
+        Self::load_from_reader_with_base(reader, 0)
+    }
+
+    pub fn load_from_reader_with_base<R: Read>(
+        reader: &mut R,
+        base_offset: u64,
+    ) -> io::Result<Self> {
         let mut log = Self::new();
+        log.base_offset = base_offset;
         while let Some(message) = read_message(reader)? {
             log.append(message);
         }
@@ -77,14 +114,27 @@ impl Default for Log {
     }
 }
 
-pub fn append_to_topic_file(base_dir: &Path, topic: &str, message: &Message) -> io::Result<()> {
-    create_dir_all(base_dir)?;
-    let path = base_dir.join(format!("{topic}.log"));
+pub fn append_to_segment_file(
+    path: &Path,
+    message: &Message,
+    fsync_policy: FsyncPolicy,
+) -> io::Result<u64> {
+    if let Some(parent) = path.parent() {
+        create_dir_all(parent)?;
+    }
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    let bytes_written = estimate_record_size(message)? as u64;
     write_message(&mut file, message)?;
     file.flush()?;
-    file.sync_all()?;
-    Ok(())
+    if matches!(fsync_policy, FsyncPolicy::Always) {
+        file.sync_all()?;
+    }
+    Ok(bytes_written)
+}
+
+pub fn estimate_record_size(message: &Message) -> io::Result<usize> {
+    let encoded = encode_message(message)?;
+    Ok(4 + encoded.len())
 }
 
 #[cfg(test)]

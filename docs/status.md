@@ -22,14 +22,14 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - End-to-end pipeline: external client -> broker -> fetch
 - Basic observability (logs / debug output)
 - Topic auto-discovery on startup
+- Segment files per topic
+- Retention (max_topic_bytes)
+- Fsync policy tuning
 
 ## In Progress
 
 ## Next Up
-
-- Segment files per topic
-- Retention (max_topic_bytes)
-- Fsync policy tuning
+- Build the simulator (data producer)
 
 ## Later (TODO, not now)
 
@@ -42,10 +42,9 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 
 - No corrupted-tail handling (partial write)
 - Full log replay on startup (no indexing)
-- Single file per topic (no segmentation)
 
 ## Notes
 
-- Tests passing as of 2026-04-10 (`cargo test`)
+- Tests passing as of 2026-04-13 (`cargo test`)
 - Focus: keep core minimal, avoid premature features
 - Philosophy: build only what is needed now

@@ -3,9 +3,10 @@
 //! Startup discovery should load persisted topic logs without manual `create_topic` calls.
 
 use herbatka::broker::core::{Broker, BrokerError};
+use herbatka::config::{BrokerConfig, FsyncPolicy};
 use herbatka::log::message::Message;
 use std::collections::HashMap;
-use std::fs::{File, create_dir_all};
+use std::fs::{File, create_dir_all, read_dir};
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -111,4 +112,68 @@ fn startup_discovery_is_noop_for_missing_data_dir() {
     ));
     let mut broker = Broker::with_data_dir(dir);
     broker.discover_topics_on_startup().unwrap();
+}
+
+#[test]
+fn restart_replays_multiple_segments_in_order() {
+    let dir = temp_data_dir("herbatka_segments_restart");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'z'; 64];
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+
+    let mut restarted = Broker::with_config(cfg);
+    restarted.discover_topics_on_startup().unwrap();
+    assert!(restarted.fetch("events", 0).unwrap().is_some());
+    assert!(restarted.fetch("events", 1).unwrap().is_some());
+    assert!(restarted.fetch("events", 2).unwrap().is_some());
+}
+
+#[test]
+fn segment_rollover_creates_multiple_files() {
+    let dir = temp_data_dir("herbatka_segments_files");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg);
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'a'; 64];
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+
+    let topic_dir = dir.join("events");
+    let files = read_dir(topic_dir).unwrap().count();
+    assert!(files >= 2);
+}
+
+#[test]
+fn retention_evicts_old_offsets_when_max_topic_bytes_is_set() {
+    let dir = temp_data_dir("herbatka_retention_offsets");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: Some(140),
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg);
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'b'; 64];
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+
+    assert!(broker.fetch("events", 0).unwrap().is_none());
+    assert!(broker.fetch("events", 2).unwrap().is_some());
 }

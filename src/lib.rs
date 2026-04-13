@@ -3,6 +3,7 @@
 //! Library crate: used by the binary and by integration tests in `tests/`.
 
 pub mod broker;
+pub mod config;
 pub mod log;
 pub mod observability;
 pub mod tcp;
