@@ -1,6 +1,6 @@
 //! Fleet-style simulator: sends JSON `PRODUCE` events to the broker.
 //! Usage:
-//!   simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--seed <u64>]
+//!   simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--seed <u64>] [--quiet]
 
 use std::env;
 use std::io::{BufRead, BufReader, Write};
@@ -11,8 +11,10 @@ use std::time::{Duration, Instant};
 use herbatka::observability;
 use tracing::error;
 
-const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--seed <u64>]";
+const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--seed <u64>] [--quiet]";
 const DEFAULT_SEED: u64 = 0xC0FFEE1234;
+const CONNECT_RETRY_MAX_ATTEMPTS: u32 = 3;
+const PROGRESS_EVERY_SECS: u64 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SimulatorArgs {
@@ -23,12 +25,42 @@ struct SimulatorArgs {
     duration_secs: u64,
     scenario: ScenarioKind,
     seed: Option<u64>,
+    quiet: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct Summary {
     produced_ok: u64,
     produced_err: u64,
+    connect_errors: u64,
+    write_errors: u64,
+    read_errors: u64,
+    non_ok_responses: u64,
+    reconnect_attempts: u64,
+    reconnect_successes: u64,
+    skipped_events: u64,
+}
+
+impl Summary {
+    fn total(&self) -> u64 {
+        self.produced_ok + self.produced_err
+    }
+
+    fn to_report(self) -> String {
+        format!(
+            "simulation done: ok={}, err={}, total={} | connect_err={}, write_err={}, read_err={}, non_ok={}, reconnect_attempts={}, reconnect_ok={}, skipped={}",
+            self.produced_ok,
+            self.produced_err,
+            self.total(),
+            self.connect_errors,
+            self.write_errors,
+            self.read_errors,
+            self.non_ok_responses,
+            self.reconnect_attempts,
+            self.reconnect_successes,
+            self.skipped_events
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +79,15 @@ impl ScenarioKind {
             "idle" => Some(Self::Idle),
             "reconnect" => Some(Self::Reconnect),
             _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Steady => "steady",
+            Self::Burst => "burst",
+            Self::Idle => "idle",
+            Self::Reconnect => "reconnect",
         }
     }
 }
@@ -99,13 +140,11 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let args = parse_args()?;
-    let summary = run_simulation(&args)?;
-    println!(
-        "simulation done: ok={}, err={}, total={}",
-        summary.produced_ok,
-        summary.produced_err,
-        summary.produced_ok + summary.produced_err
-    );
+    let summary = run_simulation(&args).map_err(|e| format!("simulation failed: {e}"))?;
+    if summary.produced_ok == 0 {
+        return Err("simulation completed but no successful sends".to_string());
+    }
+    println!("{}", summary.to_report());
     Ok(())
 }
 
@@ -115,7 +154,7 @@ fn parse_args() -> Result<SimulatorArgs, String> {
 }
 
 fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
-    if args.len() < 10 || !args.len().is_multiple_of(2) {
+    if args.len() < 10 {
         return Err(USAGE.to_string());
     }
 
@@ -126,10 +165,16 @@ fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
     let mut duration_secs: Option<u64> = None;
     let mut scenario = ScenarioKind::Steady;
     let mut seed: Option<u64> = None;
+    let mut quiet = false;
 
     let mut i = 0usize;
     while i < args.len() {
         let flag = &args[i];
+        if flag == "--quiet" {
+            quiet = true;
+            i += 1;
+            continue;
+        }
         let value = args
             .get(i + 1)
             .ok_or_else(|| format!("missing value for {flag}"))?;
@@ -163,6 +208,7 @@ fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
         duration_secs: duration_secs.ok_or_else(|| format!("missing --duration-secs\n{USAGE}"))?,
         scenario,
         seed,
+        quiet,
     };
 
     if parsed.topic.trim().is_empty() {
@@ -186,12 +232,13 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     let total_events = args.rate.saturating_mul(args.duration_secs);
     let interval_base = Duration::from_secs_f64(1.0f64 / args.rate as f64);
     let mut next_tick = Instant::now();
+    let mut next_progress = Instant::now() + Duration::from_secs(PROGRESS_EVERY_SECS);
     let seed = args.seed.unwrap_or(DEFAULT_SEED);
     let mut rng = DeterministicRng::new(seed);
-
-    let (mut stream, mut reader) = open_connection(&args.addr)?;
+    let run_start = Instant::now();
 
     let mut summary = Summary::default();
+    let (mut stream, mut reader) = connect_with_retry(&args.addr, &mut summary)?;
     for seq in 0..total_events {
         let decision = scenario_decision(args.scenario, seq);
         let interval = match decision.cadence {
@@ -205,12 +252,15 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
         }
 
         if decision.reconnect {
-            let (new_stream, new_reader) = open_connection(&args.addr)?;
+            summary.reconnect_attempts += 1;
+            let (new_stream, new_reader) = connect_with_retry(&args.addr, &mut summary)?;
+            summary.reconnect_successes += 1;
             stream = new_stream;
             reader = new_reader;
         }
 
         if !decision.send {
+            summary.skipped_events += 1;
             continue;
         }
 
@@ -219,16 +269,30 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
         let request = build_produce_line(&args.topic, &payload)?;
         stream
             .write_all(request.as_bytes())
-            .map_err(|e| format!("write failed at seq {seq}: {e}"))?;
+            .map_err(|e| {
+                summary.produced_err += 1;
+                summary.write_errors += 1;
+                format!("write failed at seq {seq}: {e}")
+            })?;
         stream
             .flush()
-            .map_err(|e| format!("flush failed at seq {seq}: {e}"))?;
+            .map_err(|e| {
+                summary.produced_err += 1;
+                summary.write_errors += 1;
+                format!("flush failed at seq {seq}: {e}")
+            })?;
 
         let mut response = String::new();
         reader
             .read_line(&mut response)
-            .map_err(|e| format!("read failed at seq {seq}: {e}"))?;
+            .map_err(|e| {
+                summary.produced_err += 1;
+                summary.read_errors += 1;
+                format!("read failed at seq {seq}: {e}")
+            })?;
         if response.is_empty() {
+            summary.produced_err += 1;
+            summary.read_errors += 1;
             return Err(format!("server closed connection at seq {seq}"));
         }
 
@@ -236,19 +300,55 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
             summary.produced_ok += 1;
         } else {
             summary.produced_err += 1;
+            summary.non_ok_responses += 1;
+        }
+
+        if !args.quiet && Instant::now() >= next_progress {
+            let elapsed = run_start.elapsed().as_secs();
+            println!(
+                "progress: scenario={} elapsed={}s ok={} err={} total={} reconnect_ok={}",
+                args.scenario.as_str(),
+                elapsed,
+                summary.produced_ok,
+                summary.produced_err,
+                summary.total(),
+                summary.reconnect_successes
+            );
+            next_progress += Duration::from_secs(PROGRESS_EVERY_SECS);
         }
     }
 
     Ok(summary)
 }
 
-fn open_connection(addr: &str) -> Result<(TcpStream, BufReader<TcpStream>), String> {
+fn open_connection_once(addr: &str) -> Result<(TcpStream, BufReader<TcpStream>), String> {
     let stream = TcpStream::connect(addr).map_err(|e| format!("connect failed to {addr}: {e}"))?;
     let reader_stream = stream
         .try_clone()
         .map_err(|e| format!("clone failed: {e}"))?;
     let reader = BufReader::new(reader_stream);
     Ok((stream, reader))
+}
+
+fn connect_with_retry(addr: &str, summary: &mut Summary) -> Result<(TcpStream, BufReader<TcpStream>), String> {
+    for attempt in 1..=CONNECT_RETRY_MAX_ATTEMPTS {
+        match open_connection_once(addr) {
+            Ok(conn) => return Ok(conn),
+            Err(e) => {
+                summary.connect_errors += 1;
+                if attempt == CONNECT_RETRY_MAX_ATTEMPTS {
+                    return Err(e);
+                }
+                sleep(retry_backoff(attempt));
+            }
+        }
+    }
+    Err("unreachable retry state".to_string())
+}
+
+fn retry_backoff(attempt: u32) -> Duration {
+    // 1->200ms, 2->400ms, ...
+    Duration::from_millis(200u64.saturating_mul(attempt as u64))
 }
 
 fn scenario_decision(kind: ScenarioKind, seq: u64) -> ScenarioDecision {
@@ -333,6 +433,7 @@ mod tests {
             "burst".to_string(),
             "--seed".to_string(),
             "7".to_string(),
+            "--quiet".to_string(),
         ];
 
         let parsed = parse_args_from(&args).expect("parse should succeed");
@@ -346,6 +447,7 @@ mod tests {
                 duration_secs: 5,
                 scenario: ScenarioKind::Burst,
                 seed: Some(7),
+                quiet: true,
             }
         );
     }
@@ -384,6 +486,7 @@ mod tests {
         let parsed = parse_args_from(&args).expect("parse should succeed");
         assert_eq!(parsed.scenario, ScenarioKind::Steady);
         assert_eq!(parsed.seed, None);
+        assert!(!parsed.quiet);
     }
 
     #[test]
@@ -460,5 +563,31 @@ mod tests {
 
         let reconnect_mark = scenario_decision(ScenarioKind::Reconnect, 25);
         assert!(reconnect_mark.reconnect);
+    }
+
+    #[test]
+    fn retry_backoff_increases_with_attempt() {
+        assert_eq!(retry_backoff(1), Duration::from_millis(200));
+        assert_eq!(retry_backoff(2), Duration::from_millis(400));
+    }
+
+    #[test]
+    fn summary_report_contains_all_main_counters() {
+        let summary = Summary {
+            produced_ok: 3,
+            produced_err: 1,
+            connect_errors: 2,
+            write_errors: 1,
+            read_errors: 0,
+            non_ok_responses: 0,
+            reconnect_attempts: 1,
+            reconnect_successes: 1,
+            skipped_events: 4,
+        };
+        let report = summary.to_report();
+        assert!(report.contains("ok=3"));
+        assert!(report.contains("err=1"));
+        assert!(report.contains("connect_err=2"));
+        assert!(report.contains("skipped=4"));
     }
 }
