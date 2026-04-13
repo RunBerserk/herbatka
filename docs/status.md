@@ -30,13 +30,19 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 
 ## Next Up
 - Build the simulator (data producer)
+  - [x] MVP simulator CLI
+  - [ ] Scenario engine
+  - [ ] Reliability/observability
+  - [ ] Load profiles
+  - [ ] Docs + test harness
 
 ## Later (TODO, not now)
 
 - Protobuf encoding
 - QUIC transport
-- Real IoT client (Ox64)
+- simple UI
 - Bevy UI integration
+- Real IoT client (Ox64)
 
 ## Known Gaps / Risks
 
