@@ -1,3 +1,7 @@
+//! TCP server runtime for Herbatka.
+//! Accepts client connections, parses protocol lines, and dispatches broker operations.
+//! Maps broker/protocol outcomes to wire responses with connection-level logging.
+
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};

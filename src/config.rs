@@ -1,3 +1,7 @@
+//! Broker configuration model and TOML loader.
+//! Defines runtime settings for data directory, segmentation, retention, and fsync mode.
+//! Applies defaults and validates user-provided values before startup.
+
 use serde::Deserialize;
 use std::fs;
 use std::io;

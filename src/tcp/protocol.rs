@@ -1,3 +1,7 @@
+//! TCP line protocol for Herbatka clients.
+//! Parses `PRODUCE` / `FETCH` command lines into typed requests.
+//! Formats broker responses into single-line wire messages.
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Request {
     Produce { topic: String, payload: String },
