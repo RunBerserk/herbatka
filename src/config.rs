@@ -65,13 +65,13 @@ pub fn validate_broker_config(config: &BrokerConfig) -> io::Result<()> {
             "segment_max_bytes must be > 0",
         ));
     }
-    if let Some(max_topic_bytes) = config.max_topic_bytes {
-        if max_topic_bytes == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "max_topic_bytes must be > 0 when set",
-            ));
-        }
+    if let Some(max_topic_bytes) = config.max_topic_bytes
+        && max_topic_bytes == 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "max_topic_bytes must be > 0 when set",
+        ));
     }
     Ok(())
 }

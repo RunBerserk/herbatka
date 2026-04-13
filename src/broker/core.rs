@@ -56,8 +56,10 @@ impl Broker {
     }
 
     pub fn with_data_dir(data_dir: PathBuf) -> Self {
-        let mut config = BrokerConfig::default();
-        config.data_dir = data_dir;
+        let config = BrokerConfig {
+            data_dir,
+            ..BrokerConfig::default()
+        };
         Self::with_config(config)
     }
 
