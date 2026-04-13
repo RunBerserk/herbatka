@@ -20,20 +20,12 @@ fn main() {
             return;
         }
     };
-    let broker = Arc::new(Mutex::new(Broker::with_config(broker_config)));
-    {
-        let mut broker_guard = match broker.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                error!("broker startup discovery failed: internal lock error");
-                return;
-            }
-        };
-        if let Err(e) = broker_guard.discover_topics_on_startup() {
-            error!("broker startup discovery failed: {:?}", e);
-            return;
-        }
+    let mut broker = Broker::with_config(broker_config);
+    if let Err(e) = broker.discover_topics_on_startup() {
+        error!("broker startup discovery failed: {:?}", e);
+        return;
     }
+    let broker = Arc::new(Mutex::new(broker));
     if let Err(e) = server::run(addr, broker) {
         if e.kind() == io::ErrorKind::AddrInUse {
             error!(

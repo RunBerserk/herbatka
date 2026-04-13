@@ -6,7 +6,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::fs::{File, read_dir, remove_file};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::BrokerConfig;
 use crate::log::message::Message;
@@ -14,10 +14,7 @@ use crate::log::persistence::read_message;
 use crate::log::store::{Log, append_to_segment_file, estimate_record_size};
 
 pub struct Broker {
-    // topic -> log
     topics: HashMap<String, TopicState>,
-    /// Base directory for per-topic `*.log` files (see `topic_log_path`).
-    data_dir: PathBuf,
     config: BrokerConfig,
 }
 
@@ -66,17 +63,16 @@ impl Broker {
     pub fn with_config(config: BrokerConfig) -> Self {
         Self {
             topics: HashMap::new(),
-            data_dir: config.data_dir.clone(),
             config,
         }
     }
 
     fn topic_dir_path(&self, topic: &str) -> PathBuf {
-        self.data_dir.join(topic)
+        self.config.data_dir.join(topic)
     }
 
     fn legacy_topic_log_path(&self, topic: &str) -> PathBuf {
-        self.data_dir.join(format!("{topic}.log"))
+        self.config.data_dir.join(format!("{topic}.log"))
     }
 
     pub fn create_topic(&mut self, topic: String) -> Result<(), BrokerError> {
@@ -90,7 +86,7 @@ impl Broker {
     }
 
     pub fn discover_topics_on_startup(&mut self) -> Result<(), BrokerError> {
-        let entries = match read_dir(&self.data_dir) {
+        let entries = match read_dir(&self.config.data_dir) {
             Ok(entries) => entries,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(BrokerError::Io(e)),
@@ -99,21 +95,8 @@ impl Broker {
         let mut topics = BTreeSet::new();
         for entry in entries {
             let entry = entry.map_err(BrokerError::Io)?;
-            let path = entry.path();
-            if path.is_dir() {
-                let Some(topic) = path.file_name().and_then(|name| name.to_str()) else {
-                    continue;
-                };
-                if !topic.is_empty() {
-                    topics.insert(topic.to_string());
-                }
-            } else if path.extension().and_then(|ext| ext.to_str()) == Some("log") {
-                let Some(topic) = path.file_stem().and_then(|stem| stem.to_str()) else {
-                    continue;
-                };
-                if !topic.is_empty() {
-                    topics.insert(topic.to_string());
-                }
+            if let Some(name) = topic_name_from_entry(&entry.path()) {
+                topics.insert(name.to_string());
             }
         }
 
@@ -146,6 +129,7 @@ impl Broker {
             .unwrap_or(true);
         if should_roll {
             let path = self
+                .config
                 .data_dir
                 .join(topic)
                 .join(format!("{next_offset:020}.log"));
@@ -280,6 +264,16 @@ impl Broker {
     }
 }
 
+fn topic_name_from_entry(path: &Path) -> Option<&str> {
+    if path.is_dir() {
+        path.file_name()?.to_str().filter(|name| !name.is_empty())
+    } else if path.extension().and_then(|ext| ext.to_str()) == Some("log") {
+        path.file_stem()?.to_str().filter(|name| !name.is_empty())
+    } else {
+        None
+    }
+}
+
 impl Default for Broker {
     fn default() -> Self {
         Self::new()
@@ -359,12 +353,12 @@ mod tests {
         let mut broker = isolated_broker();
         broker.create_topic("events".into()).unwrap();
         broker.produce("events", msg(b"hello")).unwrap();
-        let random_file = broker.data_dir.join("notes.txt");
+        let random_file = broker.config.data_dir.join("notes.txt");
         let mut file = File::create(random_file).unwrap();
         file.write_all(b"ignore me").unwrap();
 
         //WHEN
-        let mut restarted = Broker::with_data_dir(broker.data_dir.clone());
+        let mut restarted = Broker::with_data_dir(broker.config.data_dir.clone());
         restarted.discover_topics_on_startup().unwrap();
 
         //THEN
