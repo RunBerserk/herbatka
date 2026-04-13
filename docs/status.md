@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-10
+Last updated: 2026-04-13
 
 ## Current Phase
 
@@ -21,29 +21,25 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Simple CLI consumer (fetch loop)
 - End-to-end pipeline: external client -> broker -> fetch
 - Basic observability (logs / debug output)
+- Topic auto-discovery on startup
 
 ## In Progress
 
-
 ## Next Up
 
-
-- Basic observability (logs / debug output)
-
-## Later (TODO, not now)
-
-- QUIC transport
-- Protobuf encoding
-- Topic auto-discovery on startup
 - Segment files per topic
 - Retention (max_topic_bytes)
 - Fsync policy tuning
+
+## Later (TODO, not now)
+
+- Protobuf encoding
+- QUIC transport
 - Real IoT client (Ox64)
 - Bevy UI integration
 
 ## Known Gaps / Risks
 
-- Topic must be manually created after restart
 - No corrupted-tail handling (partial write)
 - Full log replay on startup (no indexing)
 - Single file per topic (no segmentation)

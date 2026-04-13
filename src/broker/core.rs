@@ -4,7 +4,7 @@
 //! Coordinates topic-level runtime behavior; persistence format is handled in `log::persistence`.
 
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{File, read_dir};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -55,6 +55,31 @@ impl Broker {
         Ok(())
     }
 
+    pub fn discover_topics_on_startup(&mut self) -> Result<(), BrokerError> {
+        let entries = match read_dir(&self.data_dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(BrokerError::Io(e)),
+        };
+
+        for entry in entries {
+            let entry = entry.map_err(BrokerError::Io)?;
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("log") {
+                continue;
+            }
+            let Some(topic) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            if topic.is_empty() || self.topics.contains_key(topic) {
+                continue;
+            }
+            let log = Self::load_topic_log(&path).map_err(BrokerError::Io)?;
+            self.topics.insert(topic.to_string(), log);
+        }
+        Ok(())
+    }
+
     pub fn produce(&mut self, topic: &str, message: Message) -> Result<u64, BrokerError> {
         // Durability: append-only writes to the topic file; each append flushes and fsyncs it.
         let log = self
@@ -100,7 +125,8 @@ mod tests {
     use super::*;
     use crate::log::message::Message;
     use std::collections::HashMap;
-    use std::fs::create_dir_all;
+    use std::fs::{File, create_dir_all};
+    use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn msg(payload: &[u8]) -> Message {
@@ -152,5 +178,28 @@ mod tests {
 
         // A's log should not see B's message at offset 0
         assert_ne!(from_a.payload, b"only-b".to_vec());
+    }
+
+    #[test]
+    fn startup_discovery_ignores_non_log_files() {
+        //GIVEN
+        let mut broker = isolated_broker();
+        broker.create_topic("events".into()).unwrap();
+        broker.produce("events", msg(b"hello")).unwrap();
+        let random_file = broker.data_dir.join("notes.txt");
+        let mut file = File::create(random_file).unwrap();
+        file.write_all(b"ignore me").unwrap();
+
+        //WHEN
+        let mut restarted = Broker::with_data_dir(broker.data_dir.clone());
+        restarted.discover_topics_on_startup().unwrap();
+
+        //THEN
+        let recovered = restarted.fetch("events", 0).unwrap().unwrap();
+        assert_eq!(recovered.payload, b"hello".to_vec());
+        assert!(matches!(
+            restarted.fetch("notes", 0),
+            Err(BrokerError::UnknownTopic)
+        ));
     }
 }
