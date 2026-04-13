@@ -1,6 +1,6 @@
 //! Fleet-style simulator: sends JSON `PRODUCE` events to the broker.
 //! Usage:
-//!   simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n>
+//!   simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--seed <u64>]
 
 use std::env;
 use std::io::{BufRead, BufReader, Write};
@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 use herbatka::observability;
 use tracing::error;
 
-const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n>";
+const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--seed <u64>]";
+const DEFAULT_SEED: u64 = 0xC0FFEE1234;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SimulatorArgs {
@@ -20,12 +21,72 @@ struct SimulatorArgs {
     vehicles: u64,
     rate: u64,
     duration_secs: u64,
+    scenario: ScenarioKind,
+    seed: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct Summary {
     produced_ok: u64,
     produced_err: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScenarioKind {
+    Steady,
+    Burst,
+    Idle,
+    Reconnect,
+}
+
+impl ScenarioKind {
+    fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "steady" => Some(Self::Steady),
+            "burst" => Some(Self::Burst),
+            "idle" => Some(Self::Idle),
+            "reconnect" => Some(Self::Reconnect),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cadence {
+    Base,
+    Fast,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScenarioDecision {
+    send: bool,
+    reconnect: bool,
+    cadence: Cadence,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DeterministicRng {
+    state: u64,
+}
+
+impl DeterministicRng {
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        // Small deterministic LCG for reproducible simulator variation.
+        self.state = self
+            .state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1);
+        self.state
+    }
+
+    fn next_i32_inclusive(&mut self, min: i32, max: i32) -> i32 {
+        let span = (max - min + 1) as u64;
+        min + (self.next_u64() % span) as i32
+    }
 }
 
 fn main() {
@@ -54,7 +115,7 @@ fn parse_args() -> Result<SimulatorArgs, String> {
 }
 
 fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
-    if args.len() != 10 {
+    if args.len() < 10 || !args.len().is_multiple_of(2) {
         return Err(USAGE.to_string());
     }
 
@@ -63,6 +124,8 @@ fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
     let mut vehicles: Option<u64> = None;
     let mut rate: Option<u64> = None;
     let mut duration_secs: Option<u64> = None;
+    let mut scenario = ScenarioKind::Steady;
+    let mut seed: Option<u64> = None;
 
     let mut i = 0usize;
     while i < args.len() {
@@ -76,6 +139,17 @@ fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
             "--vehicles" => vehicles = Some(parse_positive_u64("--vehicles", value)?),
             "--rate" => rate = Some(parse_positive_u64("--rate", value)?),
             "--duration-secs" => duration_secs = Some(parse_positive_u64("--duration-secs", value)?),
+            "--scenario" => {
+                scenario = ScenarioKind::parse(value)
+                    .ok_or_else(|| "scenario must be one of: steady, burst, idle, reconnect".to_string())?;
+            }
+            "--seed" => {
+                seed = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| "--seed must be a non-negative integer".to_string())?,
+                );
+            }
             _ => return Err(format!("unknown flag: {flag}\n{USAGE}")),
         }
         i += 2;
@@ -87,6 +161,8 @@ fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
         vehicles: vehicles.ok_or_else(|| format!("missing --vehicles\n{USAGE}"))?,
         rate: rate.ok_or_else(|| format!("missing --rate\n{USAGE}"))?,
         duration_secs: duration_secs.ok_or_else(|| format!("missing --duration-secs\n{USAGE}"))?,
+        scenario,
+        seed,
     };
 
     if parsed.topic.trim().is_empty() {
@@ -108,26 +184,38 @@ fn parse_positive_u64(name: &str, raw: &str) -> Result<u64, String> {
 
 fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     let total_events = args.rate.saturating_mul(args.duration_secs);
-    let interval = Duration::from_secs_f64(1.0f64 / args.rate as f64);
-    let start = Instant::now();
+    let interval_base = Duration::from_secs_f64(1.0f64 / args.rate as f64);
+    let mut next_tick = Instant::now();
+    let seed = args.seed.unwrap_or(DEFAULT_SEED);
+    let mut rng = DeterministicRng::new(seed);
 
-    let mut stream =
-        TcpStream::connect(&args.addr).map_err(|e| format!("connect failed to {}: {e}", args.addr))?;
-    let reader_stream = stream
-        .try_clone()
-        .map_err(|e| format!("clone failed: {e}"))?;
-    let mut reader = BufReader::new(reader_stream);
+    let (mut stream, mut reader) = open_connection(&args.addr)?;
 
     let mut summary = Summary::default();
     for seq in 0..total_events {
-        let target = start + interval.mul_f64(seq as f64);
+        let decision = scenario_decision(args.scenario, seq);
+        let interval = match decision.cadence {
+            Cadence::Base => interval_base,
+            Cadence::Fast => interval_base.div_f64(2.0),
+        };
+        next_tick += interval;
         let now = Instant::now();
-        if now < target {
-            sleep(target - now);
+        if now < next_tick {
+            sleep(next_tick - now);
+        }
+
+        if decision.reconnect {
+            let (new_stream, new_reader) = open_connection(&args.addr)?;
+            stream = new_stream;
+            reader = new_reader;
+        }
+
+        if !decision.send {
+            continue;
         }
 
         let vehicle_id = seq % args.vehicles;
-        let payload = build_event_payload(seq, vehicle_id);
+        let payload = build_event_payload(seq, vehicle_id, &mut rng);
         let request = build_produce_line(&args.topic, &payload)?;
         stream
             .write_all(request.as_bytes())
@@ -154,15 +242,58 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     Ok(summary)
 }
 
-fn build_event_payload(seq: u64, vehicle_id: u64) -> String {
+fn open_connection(addr: &str) -> Result<(TcpStream, BufReader<TcpStream>), String> {
+    let stream = TcpStream::connect(addr).map_err(|e| format!("connect failed to {addr}: {e}"))?;
+    let reader_stream = stream
+        .try_clone()
+        .map_err(|e| format!("clone failed: {e}"))?;
+    let reader = BufReader::new(reader_stream);
+    Ok((stream, reader))
+}
+
+fn scenario_decision(kind: ScenarioKind, seq: u64) -> ScenarioDecision {
+    match kind {
+        ScenarioKind::Steady => ScenarioDecision {
+            send: true,
+            reconnect: false,
+            cadence: Cadence::Base,
+        },
+        ScenarioKind::Burst => {
+            let in_burst = (seq / 20) % 2 == 1;
+            ScenarioDecision {
+                send: true,
+                reconnect: false,
+                cadence: if in_burst { Cadence::Fast } else { Cadence::Base },
+            }
+        }
+        ScenarioKind::Idle => {
+            let in_idle = (seq / 30) % 2 == 1;
+            ScenarioDecision {
+                send: !in_idle,
+                reconnect: false,
+                cadence: Cadence::Base,
+            }
+        }
+        ScenarioKind::Reconnect => ScenarioDecision {
+            send: true,
+            reconnect: seq > 0 && seq.is_multiple_of(25),
+            cadence: Cadence::Base,
+        },
+    }
+}
+
+fn build_event_payload(seq: u64, vehicle_id: u64, rng: &mut DeterministicRng) -> String {
     // Deterministic, human-readable event shape for repeatable MVP runs.
     // Fixed timestamp anchor plus 100 ms/event to simulate a stable event clock.
     let ts_ms = 1_700_000_000_000u64.saturating_add(seq.saturating_mul(100));
     // Keep speeds in a simple moving-vehicle range: 20..109 km/h.
-    let speed = 20u64 + (seq % 90);
+    let speed_base = 20u64 + (seq % 90);
+    let speed_jitter = rng.next_i32_inclusive(-2, 2);
+    let speed = (speed_base as i32 + speed_jitter).max(0) as u64;
     // Base coordinates around central Poland; per-vehicle / per-event drift is synthetic.
     let lat = 52.0f64 + (vehicle_id as f64 * 0.0001f64);
-    let lon = 21.0f64 + (seq as f64 * 0.00001f64);
+    let lon_jitter = rng.next_i32_inclusive(-1, 1) as f64 * 0.000001f64;
+    let lon = 21.0f64 + (seq as f64 * 0.00001f64) + lon_jitter;
     format!(
         "{{\"vehicle_id\":\"veh-{vehicle_id}\",\"ts_ms\":{ts_ms},\"speed\":{speed},\"lat\":{lat:.6},\"lon\":{lon:.6}}}"
     )
@@ -198,6 +329,10 @@ mod tests {
             "10".to_string(),
             "--duration-secs".to_string(),
             "5".to_string(),
+            "--scenario".to_string(),
+            "burst".to_string(),
+            "--seed".to_string(),
+            "7".to_string(),
         ];
 
         let parsed = parse_args_from(&args).expect("parse should succeed");
@@ -209,6 +344,8 @@ mod tests {
                 vehicles: 3,
                 rate: 10,
                 duration_secs: 5,
+                scenario: ScenarioKind::Burst,
+                seed: Some(7),
             }
         );
     }
@@ -231,8 +368,47 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_from_defaults_to_steady_when_omitted() {
+        let args = vec![
+            "--addr".to_string(),
+            "127.0.0.1:7000".to_string(),
+            "--topic".to_string(),
+            "events".to_string(),
+            "--vehicles".to_string(),
+            "3".to_string(),
+            "--rate".to_string(),
+            "10".to_string(),
+            "--duration-secs".to_string(),
+            "5".to_string(),
+        ];
+        let parsed = parse_args_from(&args).expect("parse should succeed");
+        assert_eq!(parsed.scenario, ScenarioKind::Steady);
+        assert_eq!(parsed.seed, None);
+    }
+
+    #[test]
+    fn parse_args_from_rejects_invalid_scenario() {
+        let args = vec![
+            "--addr".to_string(),
+            "127.0.0.1:7000".to_string(),
+            "--topic".to_string(),
+            "events".to_string(),
+            "--vehicles".to_string(),
+            "3".to_string(),
+            "--rate".to_string(),
+            "10".to_string(),
+            "--duration-secs".to_string(),
+            "5".to_string(),
+            "--scenario".to_string(),
+            "weird".to_string(),
+        ];
+        assert!(parse_args_from(&args).is_err());
+    }
+
+    #[test]
     fn event_payload_contains_expected_json_fields() {
-        let payload = build_event_payload(7, 2);
+        let mut rng = DeterministicRng::new(123);
+        let payload = build_event_payload(7, 2, &mut rng);
         assert!(payload.contains("\"vehicle_id\":\"veh-2\""));
         assert!(payload.contains("\"ts_ms\":"));
         assert!(payload.contains("\"speed\":"));
@@ -249,10 +425,40 @@ mod tests {
 
     #[test]
     fn produce_line_is_single_line_wire_message() {
-        let payload = build_event_payload(1, 1);
+        let mut rng = DeterministicRng::new(42);
+        let payload = build_event_payload(1, 1, &mut rng);
         let line = build_produce_line("events", &payload).expect("line should build");
         assert!(line.starts_with("PRODUCE events "));
         assert!(line.ends_with('\n'));
         assert_eq!(line.matches('\n').count(), 1);
+    }
+
+    #[test]
+    fn same_seed_produces_same_payload_sequence() {
+        let mut rng_a = DeterministicRng::new(77);
+        let mut rng_b = DeterministicRng::new(77);
+        let a1 = build_event_payload(1, 1, &mut rng_a);
+        let a2 = build_event_payload(2, 1, &mut rng_a);
+        let b1 = build_event_payload(1, 1, &mut rng_b);
+        let b2 = build_event_payload(2, 1, &mut rng_b);
+        assert_eq!(a1, b1);
+        assert_eq!(a2, b2);
+    }
+
+    #[test]
+    fn scenario_decision_changes_behavior() {
+        let steady = scenario_decision(ScenarioKind::Steady, 10);
+        assert!(steady.send);
+        assert!(!steady.reconnect);
+        assert_eq!(steady.cadence, Cadence::Base);
+
+        let burst_fast = scenario_decision(ScenarioKind::Burst, 25);
+        assert_eq!(burst_fast.cadence, Cadence::Fast);
+
+        let idle_pause = scenario_decision(ScenarioKind::Idle, 35);
+        assert!(!idle_pause.send);
+
+        let reconnect_mark = scenario_decision(ScenarioKind::Reconnect, 25);
+        assert!(reconnect_mark.reconnect);
     }
 }

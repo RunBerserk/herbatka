@@ -31,7 +31,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 ## Next Up
 - Build the simulator (data producer)
   - [x] MVP simulator CLI
-  - [ ] Scenario engine
+  - [x] Scenario engine
   - [ ] Reliability/observability
   - [ ] Load profiles
   - [ ] Docs + test harness
