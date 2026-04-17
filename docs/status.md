@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-13
+Last updated: 2026-04-17
 
 ## Current Phase
 
@@ -25,16 +25,17 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Segment files per topic
 - Retention (max_topic_bytes)
 - Fsync policy tuning
-
-## In Progress
-
-## Next Up
 - Build the simulator (data producer)
   - [x] MVP simulator CLI
   - [x] Scenario engine
   - [x] Reliability/observability
   - [x] Load profiles
   - [x] Docs + test harness
+
+## In Progress
+
+## Next Up
+- corrupted-tail handling (partial write); recovery should tolerate/truncate broken tail safely.
 
 ## Later (TODO, not now)
 
@@ -47,8 +48,11 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 
 ## Known Gaps / Risks
 
-- No corrupted-tail handling (partial write)
-- Full log replay on startup (no indexing)
+
+- Full log replay on startup (no indexing/checkpointing) will become slow as data volume grows.
+- Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients.
+- No CI guardrails yet (`fmt`/`clippy`/`test` in pipeline), increasing regression risk.
+- TCP text protocol is MVP-only; no schema/framing guarantees for long-term interoperability.
 
 ## Notes
 
