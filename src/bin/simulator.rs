@@ -1,6 +1,6 @@
 //! Fleet-style simulator: sends JSON `PRODUCE` events to the broker.
 //! Usage:
-//!   simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--seed <u64>] [--quiet]
+//!   simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--load-profile <constant|ramp|spike>] [--seed <u64>] [--quiet]
 
 use std::env;
 use std::io::{BufRead, BufReader, Write};
@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use herbatka::observability;
 use tracing::error;
 
-const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--seed <u64>] [--quiet]";
+const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--load-profile <constant|ramp|spike>] [--seed <u64>] [--quiet]";
 const DEFAULT_SEED: u64 = 0xC0FFEE1234;
 const CONNECT_RETRY_MAX_ATTEMPTS: u32 = 3;
 const PROGRESS_EVERY_SECS: u64 = 5;
@@ -24,6 +24,7 @@ struct SimulatorArgs {
     rate: u64,
     duration_secs: u64,
     scenario: ScenarioKind,
+    load_profile: LoadProfileKind,
     seed: Option<u64>,
     quiet: bool,
 }
@@ -88,6 +89,32 @@ impl ScenarioKind {
             Self::Burst => "burst",
             Self::Idle => "idle",
             Self::Reconnect => "reconnect",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoadProfileKind {
+    Constant,
+    Ramp,
+    Spike,
+}
+
+impl LoadProfileKind {
+    fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "constant" => Some(Self::Constant),
+            "ramp" => Some(Self::Ramp),
+            "spike" => Some(Self::Spike),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Constant => "constant",
+            Self::Ramp => "ramp",
+            Self::Spike => "spike",
         }
     }
 }
@@ -164,6 +191,7 @@ fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
     let mut rate: Option<u64> = None;
     let mut duration_secs: Option<u64> = None;
     let mut scenario = ScenarioKind::Steady;
+    let mut load_profile = LoadProfileKind::Constant;
     let mut seed: Option<u64> = None;
     let mut quiet = false;
 
@@ -188,6 +216,11 @@ fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
                 scenario = ScenarioKind::parse(value)
                     .ok_or_else(|| "scenario must be one of: steady, burst, idle, reconnect".to_string())?;
             }
+            "--load-profile" => {
+                load_profile = LoadProfileKind::parse(value).ok_or_else(|| {
+                    "load profile must be one of: constant, ramp, spike".to_string()
+                })?;
+            }
             "--seed" => {
                 seed = Some(
                     value
@@ -207,6 +240,7 @@ fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
         rate: rate.ok_or_else(|| format!("missing --rate\n{USAGE}"))?,
         duration_secs: duration_secs.ok_or_else(|| format!("missing --duration-secs\n{USAGE}"))?,
         scenario,
+        load_profile,
         seed,
         quiet,
     };
@@ -230,7 +264,6 @@ fn parse_positive_u64(name: &str, raw: &str) -> Result<u64, String> {
 
 fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     let total_events = args.rate.saturating_mul(args.duration_secs);
-    let interval_base = Duration::from_secs_f64(1.0f64 / args.rate as f64);
     let mut next_tick = Instant::now();
     let mut next_progress = Instant::now() + Duration::from_secs(PROGRESS_EVERY_SECS);
     let seed = args.seed.unwrap_or(DEFAULT_SEED);
@@ -241,10 +274,8 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     let (mut stream, mut reader) = connect_with_retry(&args.addr, &mut summary)?;
     for seq in 0..total_events {
         let decision = scenario_decision(args.scenario, seq);
-        let interval = match decision.cadence {
-            Cadence::Base => interval_base,
-            Cadence::Fast => interval_base.div_f64(2.0),
-        };
+        let profile_multiplier = load_profile_multiplier(args.load_profile, seq, total_events);
+        let interval = effective_interval(args.rate, decision.cadence, profile_multiplier);
         next_tick += interval;
         let now = Instant::now();
         if now < next_tick {
@@ -306,8 +337,9 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
         if !args.quiet && Instant::now() >= next_progress {
             let elapsed = run_start.elapsed().as_secs();
             println!(
-                "progress: scenario={} elapsed={}s ok={} err={} total={} reconnect_ok={}",
+                "progress: scenario={} load_profile={} elapsed={}s ok={} err={} total={} reconnect_ok={}",
                 args.scenario.as_str(),
+                args.load_profile.as_str(),
                 elapsed,
                 summary.produced_ok,
                 summary.produced_err,
@@ -382,6 +414,32 @@ fn scenario_decision(kind: ScenarioKind, seq: u64) -> ScenarioDecision {
     }
 }
 
+fn load_profile_multiplier(kind: LoadProfileKind, seq: u64, total_events: u64) -> f64 {
+    match kind {
+        LoadProfileKind::Constant => 1.0,
+        LoadProfileKind::Ramp => {
+            if total_events <= 1 {
+                return 1.0;
+            }
+            let progress = seq as f64 / (total_events - 1) as f64;
+            0.5 + progress
+        }
+        LoadProfileKind::Spike => {
+            let in_spike_window = seq % 40 >= 32;
+            if in_spike_window { 2.0 } else { 1.0 }
+        }
+    }
+}
+
+fn effective_interval(base_rate: u64, cadence: Cadence, profile_multiplier: f64) -> Duration {
+    let cadence_multiplier = match cadence {
+        Cadence::Base => 1.0,
+        Cadence::Fast => 2.0,
+    };
+    let effective_rate = ((base_rate as f64) * cadence_multiplier * profile_multiplier).max(0.001);
+    Duration::from_secs_f64(1.0 / effective_rate)
+}
+
 fn build_event_payload(seq: u64, vehicle_id: u64, rng: &mut DeterministicRng) -> String {
     // Deterministic, human-readable event shape for repeatable MVP runs.
     // Fixed timestamp anchor plus 100 ms/event to simulate a stable event clock.
@@ -431,6 +489,8 @@ mod tests {
             "5".to_string(),
             "--scenario".to_string(),
             "burst".to_string(),
+            "--load-profile".to_string(),
+            "ramp".to_string(),
             "--seed".to_string(),
             "7".to_string(),
             "--quiet".to_string(),
@@ -446,6 +506,7 @@ mod tests {
                 rate: 10,
                 duration_secs: 5,
                 scenario: ScenarioKind::Burst,
+                load_profile: LoadProfileKind::Ramp,
                 seed: Some(7),
                 quiet: true,
             }
@@ -485,6 +546,7 @@ mod tests {
         ];
         let parsed = parse_args_from(&args).expect("parse should succeed");
         assert_eq!(parsed.scenario, ScenarioKind::Steady);
+        assert_eq!(parsed.load_profile, LoadProfileKind::Constant);
         assert_eq!(parsed.seed, None);
         assert!(!parsed.quiet);
     }
@@ -504,6 +566,25 @@ mod tests {
             "5".to_string(),
             "--scenario".to_string(),
             "weird".to_string(),
+        ];
+        assert!(parse_args_from(&args).is_err());
+    }
+
+    #[test]
+    fn parse_args_from_rejects_invalid_load_profile() {
+        let args = vec![
+            "--addr".to_string(),
+            "127.0.0.1:7000".to_string(),
+            "--topic".to_string(),
+            "events".to_string(),
+            "--vehicles".to_string(),
+            "3".to_string(),
+            "--rate".to_string(),
+            "10".to_string(),
+            "--duration-secs".to_string(),
+            "5".to_string(),
+            "--load-profile".to_string(),
+            "wild".to_string(),
         ];
         assert!(parse_args_from(&args).is_err());
     }
@@ -563,6 +644,31 @@ mod tests {
 
         let reconnect_mark = scenario_decision(ScenarioKind::Reconnect, 25);
         assert!(reconnect_mark.reconnect);
+    }
+
+    #[test]
+    fn load_profile_multiplier_changes_over_time() {
+        let constant = load_profile_multiplier(LoadProfileKind::Constant, 10, 100);
+        assert!((constant - 1.0).abs() < f64::EPSILON);
+
+        let ramp_start = load_profile_multiplier(LoadProfileKind::Ramp, 0, 100);
+        let ramp_end = load_profile_multiplier(LoadProfileKind::Ramp, 99, 100);
+        assert!((ramp_start - 0.5).abs() < 1e-9);
+        assert!((ramp_end - 1.5).abs() < 1e-9);
+
+        let spike_normal = load_profile_multiplier(LoadProfileKind::Spike, 15, 100);
+        let spike_peak = load_profile_multiplier(LoadProfileKind::Spike, 35, 100);
+        assert!((spike_normal - 1.0).abs() < f64::EPSILON);
+        assert!((spike_peak - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn effective_interval_is_positive_and_fast_cadence_is_faster() {
+        let base = effective_interval(10, Cadence::Base, 1.0);
+        let fast = effective_interval(10, Cadence::Fast, 1.0);
+        assert!(base > Duration::ZERO);
+        assert!(fast > Duration::ZERO);
+        assert!(fast < base);
     }
 
     #[test]

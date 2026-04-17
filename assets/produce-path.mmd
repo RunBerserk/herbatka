@@ -1,0 +1,7 @@
+sequenceDiagram
+    participant P as produce
+    participant Disk as topic.log
+    participant Mem as Log
+    P->>Disk: append framed message
+    P->>Mem: append same message
+    Note over P,Mem: If disk fails, do not append to Mem

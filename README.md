@@ -16,15 +16,7 @@ On `produce`, the broker appends to the active topic segment on disk first, then
 Disk write always happens before memory advance; if disk append fails, memory is not advanced.
 Durability behavior is controlled by `fsync_policy` in config (`always` by default).
 
-```mermaid
-sequenceDiagram
-    participant P as produce
-    participant Disk as topic.log
-    participant Mem as Log
-    P->>Disk: append framed message
-    P->>Mem: append same message
-    Note over P,Mem: If disk fails, do not append to Mem
-```
+![Produce path sequence diagram](assets/produce-path.svg)
 
 ## TCP quickstart
 
@@ -51,14 +43,15 @@ Expected:
 
 ## Simulator quickstart
 
-Run simulator with scenario and seed:
+Run simulator with scenario, load profile, and seed:
 
-`cargo run --bin simulator -- --addr 127.0.0.1:7000 --topic events --vehicles 5 --rate 10 --duration-secs 5 --scenario burst --seed 42`
+`cargo run --bin simulator -- --addr 127.0.0.1:7000 --topic events --vehicles 5 --rate 10 --duration-secs 5 --scenario burst --load-profile ramp --seed 42`
 
 Optional flags:
 
 - `--quiet` disables periodic progress logs and prints only final summary
 - `--scenario` chooses event behavior (`steady`, `burst`, `idle`, `reconnect`)
+- `--load-profile` modulates effective traffic intensity over time (`constant`, `ramp`, `spike`)
 - `--seed` makes scenario variation reproducible
 
 Reliability and observability behavior:

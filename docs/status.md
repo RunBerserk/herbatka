@@ -33,7 +33,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
   - [x] MVP simulator CLI
   - [x] Scenario engine
   - [x] Reliability/observability
-  - [ ] Load profiles
+  - [x] Load profiles
   - [ ] Docs + test harness
 
 ## Later (TODO, not now)
@@ -43,6 +43,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - simple UI
 - Bevy UI integration
 - Real IoT client (Ox64)
+- scripts, skills folder
 
 ## Known Gaps / Risks
 
