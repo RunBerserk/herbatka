@@ -34,7 +34,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
   - [x] Scenario engine
   - [x] Reliability/observability
   - [x] Load profiles
-  - [ ] Docs + test harness
+  - [x] Docs + test harness
 
 ## Later (TODO, not now)
 

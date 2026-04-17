@@ -9,6 +9,8 @@ A lightweight event streaming broker inspired by Apache Kafka, focused on simpli
 - [Why](docs/why.md) - purpose and philosophy
 - [What](docs/what.md) - concrete features and commands
 - [How](docs/how.md) - principles and architecture
+- [Simulator Guide](docs/simulator.md) - simulator flags, counters, and troubleshooting
+- [Test Harness](docs/test-harness.md) - deterministic local smoke flow
 
 ## Produce path
 
