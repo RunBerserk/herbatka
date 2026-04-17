@@ -20,6 +20,12 @@ Startup topic discovery/replay and produce path persistence/retention lifecycle.
 
 ![Persistence and recovery flow](../assets/diagrams/svg/persistence-recovery.svg)
 
+### Replay segment recovery (corrupted-tail handling)
+
+Startup replay behavior for clean EOF, truncated tail (`UnexpectedEof`), and hard-fail corruption paths.
+
+![Replay segment recovery flow](../assets/diagrams/svg/replay-segment-recovery.svg)
+
 ### Simulator load behavior
 
 How `--scenario` and `--load-profile` combine into effective event cadence.

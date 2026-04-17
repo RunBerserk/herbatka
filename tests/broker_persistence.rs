@@ -6,7 +6,7 @@ use herbatka::broker::core::{Broker, BrokerError};
 use herbatka::config::{BrokerConfig, FsyncPolicy};
 use herbatka::log::message::Message;
 use std::collections::HashMap;
-use std::fs::{File, create_dir_all, read_dir};
+use std::fs::{File, OpenOptions, create_dir_all, read_dir};
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -31,6 +31,19 @@ fn temp_data_dir(prefix: &str) -> PathBuf {
     ));
     create_dir_all(&dir).unwrap();
     dir
+}
+
+fn topic_segment_files(dir: &std::path::Path, topic: &str) -> Vec<PathBuf> {
+    let topic_dir = dir.join(topic);
+    // Test helper: panic on setup/read failures is intentional so broken
+    // filesystem preconditions fail the test immediately and loudly.
+    let mut files: Vec<PathBuf> = read_dir(topic_dir)
+        .unwrap()
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("log"))
+        .collect();
+    files.sort();
+    files
 }
 
 #[test]
@@ -176,4 +189,111 @@ fn retention_evicts_old_offsets_when_max_topic_bytes_is_set() {
 
     assert!(broker.fetch("events", 0).unwrap().is_none());
     assert!(broker.fetch("events", 2).unwrap().is_some());
+}
+
+#[test]
+fn startup_truncates_partial_tail_and_recovers() {
+    let dir = temp_data_dir("herbatka_tail_truncate");
+    let mut broker = Broker::with_data_dir(dir.clone());
+    broker.create_topic("events".into()).unwrap();
+    broker.produce("events", message(b"ok-1")).unwrap();
+    broker.produce("events", message(b"ok-2")).unwrap();
+
+    let segments = topic_segment_files(&dir, "events");
+    let segment_path = segments.last().expect("segment should exist").clone();
+    let clean_len = std::fs::metadata(&segment_path).unwrap().len();
+
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&segment_path)
+        .expect("append should succeed");
+    file.write_all(&10u32.to_le_bytes())
+        .expect("tail len write should succeed");
+    file.write_all(&[1u8, 2u8, 3u8])
+        .expect("partial tail write should succeed");
+    drop(file);
+
+    let corrupted_len = std::fs::metadata(&segment_path).unwrap().len();
+    assert!(corrupted_len > clean_len);
+
+    let mut restarted = Broker::with_data_dir(dir);
+    restarted.discover_topics_on_startup().unwrap();
+
+    assert_eq!(
+        restarted.fetch("events", 0).unwrap().unwrap().payload,
+        b"ok-1".to_vec()
+    );
+    assert_eq!(
+        restarted.fetch("events", 1).unwrap().unwrap().payload,
+        b"ok-2".to_vec()
+    );
+    assert!(restarted.fetch("events", 2).unwrap().is_none());
+
+    let recovered_len = std::fs::metadata(&segment_path).unwrap().len();
+    assert_eq!(recovered_len, clean_len);
+}
+
+#[test]
+fn startup_keeps_failing_on_invalid_data_tail() {
+    let dir = temp_data_dir("herbatka_tail_invalid");
+    let mut broker = Broker::with_data_dir(dir.clone());
+    broker.create_topic("events".into()).unwrap();
+    broker.produce("events", message(b"ok-1")).unwrap();
+
+    let segments = topic_segment_files(&dir, "events");
+    let segment_path = segments.last().expect("segment should exist").clone();
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&segment_path)
+        .expect("append should succeed");
+
+    // Encoded message with one header key byte 0xFF to force InvalidData ("invalid utf8 key").
+    let mut invalid_record = Vec::new();
+    invalid_record.extend_from_slice(&0u64.to_le_bytes()); // timestamp
+    invalid_record.extend_from_slice(&u32::MAX.to_le_bytes()); // key = None sentinel
+    invalid_record.extend_from_slice(&0u32.to_le_bytes()); // payload length
+    invalid_record.extend_from_slice(&1u32.to_le_bytes()); // header count
+    invalid_record.extend_from_slice(&1u32.to_le_bytes()); // header key length
+    invalid_record.push(0xFF); // invalid utf-8 key byte
+    invalid_record.extend_from_slice(&0u32.to_le_bytes()); // header value length
+    file.write_all(&(invalid_record.len() as u32).to_le_bytes())
+        .expect("frame len write should succeed");
+    file.write_all(&invalid_record)
+        .expect("invalid frame write should succeed");
+    drop(file);
+
+    let mut restarted = Broker::with_data_dir(dir);
+    match restarted.discover_topics_on_startup() {
+        Err(BrokerError::Io(e)) => {
+            assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
+        }
+        other => panic!("expected invalid-data startup failure, got: {other:?}"),
+    }
+}
+
+#[test]
+fn startup_clean_segment_no_truncation() {
+    let dir = temp_data_dir("herbatka_tail_clean");
+    let mut broker = Broker::with_data_dir(dir.clone());
+    broker.create_topic("events".into()).unwrap();
+    broker.produce("events", message(b"ok-1")).unwrap();
+    broker.produce("events", message(b"ok-2")).unwrap();
+
+    let segments = topic_segment_files(&dir, "events");
+    let segment_path = segments.last().expect("segment should exist").clone();
+    let before = std::fs::metadata(&segment_path).unwrap().len();
+
+    let mut restarted = Broker::with_data_dir(dir);
+    restarted.discover_topics_on_startup().unwrap();
+
+    let after = std::fs::metadata(&segment_path).unwrap().len();
+    assert_eq!(before, after);
+    assert_eq!(
+        restarted.fetch("events", 0).unwrap().unwrap().payload,
+        b"ok-1".to_vec()
+    );
+    assert_eq!(
+        restarted.fetch("events", 1).unwrap().unwrap().payload,
+        b"ok-2".to_vec()
+    );
 }

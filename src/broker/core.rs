@@ -4,14 +4,15 @@
 //! Coordinates topic-level runtime behavior; persistence format is handled in `log::persistence`.
 
 use std::collections::{BTreeSet, HashMap};
-use std::fs::{File, read_dir, remove_file};
-use std::io;
+use std::fs::{OpenOptions, read_dir, remove_file};
+use std::io::{self, Seek};
 use std::path::{Path, PathBuf};
 
 use crate::config::BrokerConfig;
 use crate::log::message::Message;
 use crate::log::persistence::read_message;
 use crate::log::store::{Log, append_to_segment_file, estimate_record_size};
+use tracing::warn;
 
 pub struct Broker {
     topics: HashMap<String, TopicState>,
@@ -185,11 +186,35 @@ impl Broker {
                     "segment offsets are not contiguous",
                 )));
             }
-            let mut file = File::open(&segment.path).map_err(BrokerError::Io)?;
+            let mut file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&segment.path)
+                .map_err(BrokerError::Io)?;
             let mut count = 0u64;
-            while let Some(message) = read_message(&mut file).map_err(BrokerError::Io)? {
-                log.append(message);
-                count += 1;
+            loop {
+                let last_good_pos = file.stream_position().map_err(BrokerError::Io)?;
+                match read_message(&mut file) {
+                    Ok(Some(message)) => {
+                        log.append(message);
+                        count += 1;
+                    }
+                    Ok(None) => break,
+                    Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+                        let original_len = file.metadata().map_err(BrokerError::Io)?.len();
+                        file.set_len(last_good_pos).map_err(BrokerError::Io)?;
+                        segment.size_bytes = last_good_pos;
+                        warn!(
+                            topic = %topic,
+                            segment = %segment.path.display(),
+                            from_bytes = original_len,
+                            to_bytes = last_good_pos,
+                            "truncated corrupted tail during startup replay"
+                        );
+                        break;
+                    }
+                    Err(e) => return Err(BrokerError::Io(e)),
+                }
             }
             segment.message_count = count;
         }

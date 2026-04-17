@@ -25,6 +25,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Segment files per topic
 - Retention (max_topic_bytes)
 - Fsync policy tuning
+- Corrupted-tail handling on startup replay (`UnexpectedEof` tail is truncated to last valid record boundary)
 - Build the simulator (data producer)
   - [x] MVP simulator CLI
   - [x] Scenario engine
@@ -35,7 +36,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 ## In Progress
 
 ## Next Up
-- corrupted-tail handling (partial write); recovery should tolerate/truncate broken tail safely.
+- Full log replay startup performance improvements (index/checkpointing).
 
 ## Later (TODO, not now)
 

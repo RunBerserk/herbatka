@@ -1,0 +1,8 @@
+flowchart TD
+    replayStart[ReplaySegment] --> readTry[ReadNextRecord]
+    readTry -->|OkSome| append[AppendToInMemoryLog]
+    append --> replayStart
+    readTry -->|OkNone| segmentDone[SegmentReplayDone]
+    readTry -->|ErrUnexpectedEof| truncate[TruncateToLastGoodOffset]
+    truncate --> segmentDone
+    readTry -->|ErrOther| startupError[StartupError]
