@@ -1,0 +1,13 @@
+flowchart TD
+    args[SimulatorArgs] --> base[BaseRate]
+    args --> scenario[ScenarioDecision]
+    args --> profile[LoadProfileMultiplier]
+    base --> combine[EffectiveInterval]
+    scenario --> combine
+    profile --> combine
+    combine --> tick[TickLoop]
+    tick --> send{SendEvent}
+    send -->|yes| produce[ProduceLineToBroker]
+    send -->|no| skip[SkippedCounter]
+    produce --> summary[SummaryCounters]
+    skip --> summary

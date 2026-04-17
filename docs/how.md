@@ -8,16 +8,23 @@ High-level strategy.
 ## Architecture
 Main components and their responsibilities.
 
-- Car events simulation (later also 1x real IoT device, with real problems)
-- Ingestion layer
-- Event bus with separated channels (QUIC + Protobuf)
-  - heartbeat: low-priority stream
-  - control (ack, error): reliable, ordered stream
-  - payload (e.g., telemetry): high-throughput stream, can tolerate some loss under pressure
-- Stream processor
-- Gateway
-- UI
-- Storage
+### Request flow
+
+`PRODUCE` and `FETCH` processing from client through TCP server/protocol to broker.
+
+![Request flow](../assets/diagrams/svg/request-flow.svg)
+
+### Persistence and recovery
+
+Startup topic discovery/replay and produce path persistence/retention lifecycle.
+
+![Persistence and recovery flow](../assets/diagrams/svg/persistence-recovery.svg)
+
+### Simulator load behavior
+
+How `--scenario` and `--load-profile` combine into effective event cadence.
+
+![Simulator load flow](../assets/diagrams/svg/simulator-load-flow.svg)
 
 
 

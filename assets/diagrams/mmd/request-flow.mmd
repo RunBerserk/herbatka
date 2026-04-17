@@ -1,0 +1,23 @@
+sequenceDiagram
+    participant C as Client
+    participant S as TCPServer
+    participant P as ProtocolParser
+    participant B as BrokerCore
+    participant D as SegmentFile
+    participant M as InMemoryLog
+
+    C->>S: PRODUCE topic payload
+    S->>P: parse_request(line)
+    P-->>S: Request::Produce
+    S->>B: produce(topic, message)
+    B->>D: append_to_segment_file(...)
+    B->>M: log.append(message)
+    B-->>S: offset
+    S-->>C: OK offset
+
+    C->>S: FETCH topic offset
+    S->>P: parse_request(line)
+    P-->>S: Request::Fetch
+    S->>B: fetch(topic, offset)
+    B-->>S: Option<Message>
+    S-->>C: MSG/NONE/ERR

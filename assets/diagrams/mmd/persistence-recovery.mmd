@@ -1,0 +1,14 @@
+flowchart TD
+    startup[BrokerStartup] --> discover[DiscoverTopicsOnStartup]
+    discover --> load[LoadTopicState]
+    load --> replay[ReplaySegmentMessagesToLog]
+    replay --> ready[BrokerReady]
+
+    produce[ProduceRequest] --> roll{SegmentRollNeeded}
+    roll -->|yes| create[CreateNewSegmentFile]
+    roll -->|no| append[UseActiveSegment]
+    create --> append
+    append --> write[AppendToSegmentFile]
+    write --> mem[AppendToInMemoryLog]
+    mem --> retain[EnforceRetention]
+    retain --> done[ReturnOffset]

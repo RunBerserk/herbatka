@@ -12,13 +12,17 @@ A lightweight event streaming broker inspired by Apache Kafka, focused on simpli
 - [Simulator Guide](docs/simulator.md) - simulator flags, counters, and troubleshooting
 - [Test Harness](docs/test-harness.md) - deterministic local smoke flow
 
+## Architecture Overview
+
+![Herbatka architecture overview](assets/diagrams/svg/architecture-overview.svg)
+
 ## Produce path
 
 On `produce`, the broker appends to the active topic segment on disk first, then to the in-memory `Log`.
 Disk write always happens before memory advance; if disk append fails, memory is not advanced.
 Durability behavior is controlled by `fsync_policy` in config (`always` by default).
 
-![Produce path sequence diagram](assets/produce-path.svg)
+![Produce path sequence diagram](assets/diagrams/svg/produce-path.svg)
 
 ## TCP quickstart
 

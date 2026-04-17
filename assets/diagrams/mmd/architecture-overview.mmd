@@ -1,0 +1,15 @@
+flowchart LR
+    producer[Producer CLI]
+    consumer[Consumer CLI]
+    simulator[Simulator CLI]
+    tcp[TCPServer]
+    broker[BrokerCore]
+    mem[InMemoryLog]
+    disk[TopicSegmentFiles]
+
+    producer --> tcp
+    consumer --> tcp
+    simulator --> tcp
+    tcp --> broker
+    broker --> mem
+    broker --> disk
