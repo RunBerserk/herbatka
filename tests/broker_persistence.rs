@@ -46,6 +46,10 @@ fn topic_segment_files(dir: &std::path::Path, topic: &str) -> Vec<PathBuf> {
     files
 }
 
+fn topic_checkpoint_path(dir: &std::path::Path, topic: &str) -> PathBuf {
+    dir.join(topic).join(".checkpoint")
+}
+
 #[test]
 fn produce_survives_broker_restart() {
     let dir = temp_data_dir("herbatka_persist");
@@ -296,4 +300,65 @@ fn startup_clean_segment_no_truncation() {
         restarted.fetch("events", 1).unwrap().unwrap().payload,
         b"ok-2".to_vec()
     );
+}
+
+#[test]
+fn checkpoint_file_is_written_and_restart_still_recovers() {
+    let dir = temp_data_dir("herbatka_checkpoint_written");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'c'; 64];
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+
+    let checkpoint_path = topic_checkpoint_path(&dir, "events");
+    let checkpoint_raw = std::fs::read_to_string(&checkpoint_path).expect("checkpoint should exist");
+    assert!(checkpoint_raw.starts_with("v1\n"));
+
+    let mut restarted = Broker::with_config(cfg);
+    restarted.discover_topics_on_startup().unwrap();
+    assert!(restarted.fetch("events", 0).unwrap().is_some());
+    assert!(restarted.fetch("events", 1).unwrap().is_some());
+    assert!(restarted.fetch("events", 2).unwrap().is_some());
+}
+
+#[test]
+fn stale_or_invalid_checkpoint_falls_back_to_safe_replay() {
+    let dir = temp_data_dir("herbatka_checkpoint_fallback");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'd'; 64];
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+
+    let checkpoint_path = topic_checkpoint_path(&dir, "events");
+    let stale = "v1\n0,1,999999\n";
+    std::fs::write(&checkpoint_path, stale).expect("write stale checkpoint");
+
+    let mut restarted = Broker::with_config(cfg.clone());
+    restarted.discover_topics_on_startup().unwrap();
+    assert!(restarted.fetch("events", 0).unwrap().is_some());
+    assert!(restarted.fetch("events", 1).unwrap().is_some());
+    assert!(restarted.fetch("events", 2).unwrap().is_some());
+
+    std::fs::write(&checkpoint_path, "not-a-valid-checkpoint").expect("write invalid checkpoint");
+    let mut restarted_again = Broker::with_config(cfg);
+    restarted_again.discover_topics_on_startup().unwrap();
+    assert!(restarted_again.fetch("events", 0).unwrap().is_some());
+    assert!(restarted_again.fetch("events", 1).unwrap().is_some());
+    assert!(restarted_again.fetch("events", 2).unwrap().is_some());
 }

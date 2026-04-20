@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-17
+Last updated: 2026-04-20
 
 ## Current Phase
 
@@ -26,6 +26,10 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Retention (max_topic_bytes)
 - Fsync policy tuning
 - Corrupted-tail handling on startup replay (`UnexpectedEof` tail is truncated to last valid record boundary)
+- Protocol command extraction to dedicated module (`tcp::command`) with compatibility shim in `tcp::protocol`
+- Startup checkpoint manifest foundation (`.checkpoint`) with per-segment metadata (`base_offset`, `message_count`, `valid_len`)
+- Hybrid checkpoint persistence cadence (on segment roll/retention and every N appends)
+- Checkpoint fallback safety (stale/corrupt checkpoint falls back to safe replay path)
 - Build the simulator (data producer)
   - [x] MVP simulator CLI
   - [x] Scenario engine
@@ -36,7 +40,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 ## In Progress
 
 ## Next Up
-- Full log replay startup performance improvements (index/checkpointing).
+- Extend startup replay performance improvements beyond checkpoint manifest (reduce decode work further; evaluate sparse index).
 
 ## Later (TODO, not now)
 
@@ -50,13 +54,13 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 ## Known Gaps / Risks
 
 
-- Full log replay on startup (no indexing/checkpointing) will become slow as data volume grows.
+- Startup replay still decodes heavily at scale; checkpoint manifest helps, but sparse indexing or deeper skip-paths are still needed.
 - Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients.
 - No CI guardrails yet (`fmt`/`clippy`/`test` in pipeline), increasing regression risk.
 - TCP text protocol is MVP-only; no schema/framing guarantees for long-term interoperability.
 
 ## Notes
 
-- Tests passing as of 2026-04-13 (`cargo test`)
+- Tests passing as of 2026-04-20 (`cargo test`)
 - Focus: keep core minimal, avoid premature features
 - Philosophy: build only what is needed now
