@@ -2,6 +2,8 @@
 //! Parses `PRODUCE` / `FETCH` command lines into typed requests.
 //! Formats broker responses into single-line wire messages.
 
+use std::fmt;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Request {
     Produce { topic: String, payload: String },
@@ -16,54 +18,88 @@ pub enum Response {
     Error(String),
 }
 
-pub fn parse_request(line: &str) -> Result<Request, &'static str> {
+#[derive(Debug, PartialEq, Eq)]
+pub enum ParseError {
+    EmptyCommand,
+    UnknownCommand,
+    MissingTopic,
+    MissingPayload,
+    MissingOffset,
+    InvalidOffset,
+    TooManyArguments,
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            ParseError::EmptyCommand => "empty command",
+            ParseError::UnknownCommand => "unknown command",
+            ParseError::MissingTopic => "missing topic",
+            ParseError::MissingPayload => "missing payload",
+            ParseError::MissingOffset => "missing offset",
+            ParseError::InvalidOffset => "invalid offset",
+            ParseError::TooManyArguments => "too many arguments",
+        };
+        write!(f, "{message}")
+    }
+}
+
+pub fn parse_request(line: &str) -> Result<Request, ParseError> {
     let line = line.trim_end();
 
     if line.is_empty() {
-        return Err("empty command");
+        return Err(ParseError::EmptyCommand);
     }
 
     if let Some(rest) = line.strip_prefix("PRODUCE ") {
-        let mut parts = rest.splitn(2, ' ');
-
-        let topic = parts.next().ok_or("missing topic")?;
-        let payload = parts.next().ok_or("missing payload")?;
-
-        if topic.is_empty() {
-            return Err("missing topic");
-        }
-
-        if payload.is_empty() {
-            return Err("missing payload");
-        }
-
-        return Ok(Request::Produce {
-            topic: topic.to_string(),
-            payload: payload.to_string(),
-        });
+        return parse_produce(rest);
     }
 
     if let Some(rest) = line.strip_prefix("FETCH ") {
-        let mut parts = rest.split_whitespace();
-
-        let topic = parts.next().ok_or("missing topic")?;
-        let offset = parts
-            .next()
-            .ok_or("missing offset")?
-            .parse::<u64>()
-            .map_err(|_| "invalid offset")?;
-
-        if parts.next().is_some() {
-            return Err("too many arguments");
-        }
-
-        return Ok(Request::Fetch {
-            topic: topic.to_string(),
-            offset,
-        });
+        return parse_fetch(rest);
     }
 
-    Err("unknown command")
+    Err(ParseError::UnknownCommand)
+}
+
+fn parse_produce(rest: &str) -> Result<Request, ParseError> {
+    let mut parts = rest.splitn(2, ' ');
+
+    let topic = parts.next().ok_or(ParseError::MissingTopic)?;
+    let payload = parts.next().ok_or(ParseError::MissingPayload)?;
+
+    if topic.is_empty() {
+        return Err(ParseError::MissingTopic);
+    }
+
+    if payload.is_empty() {
+        return Err(ParseError::MissingPayload);
+    }
+
+    Ok(Request::Produce {
+        topic: topic.to_string(),
+        payload: payload.to_string(),
+    })
+}
+
+fn parse_fetch(rest: &str) -> Result<Request, ParseError> {
+    let mut parts = rest.split_whitespace();
+
+    let topic = parts.next().ok_or(ParseError::MissingTopic)?;
+    let offset = parts
+        .next()
+        .ok_or(ParseError::MissingOffset)?
+        .parse::<u64>()
+        .map_err(|_| ParseError::InvalidOffset)?;
+
+    if parts.next().is_some() {
+        return Err(ParseError::TooManyArguments);
+    }
+
+    Ok(Request::Fetch {
+        topic: topic.to_string(),
+        offset,
+    })
 }
 
 pub fn format_response(response: &Response) -> String {
