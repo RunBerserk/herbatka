@@ -109,23 +109,17 @@ fn decode_key(data: &mut &[u8]) -> io::Result<Option<Vec<u8>>> {
 }
 
 fn decode_payload(data: &mut &[u8]) -> io::Result<Vec<u8>> {
-    let payload_len = read_u32(data)? as usize;
-    read_bytes(data, payload_len)
+    read_len_prefixed_bytes(data)
 }
 
 fn decode_headers(data: &mut &[u8]) -> io::Result<HashMap<String, Vec<u8>>> {
-    let header_count = read_u32(data)?;
-    let mut headers = HashMap::new();
+    let header_count = read_u32(data)? as usize;
+    let mut headers = HashMap::with_capacity(header_count);
 
     for _ in 0..header_count {
-        let k_len = read_u32(data)? as usize;
-        let key_str = String::from_utf8(read_bytes(data, k_len)?)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8 key"))?;
-
-        let v_len = read_u32(data)? as usize;
-        let value = read_bytes(data, v_len)?;
-
-        headers.insert(key_str, value);
+        let key = read_len_prefixed_utf8(data)?;
+        let value = read_len_prefixed_bytes(data)?;
+        headers.insert(key, value);
     }
 
     Ok(headers)
@@ -189,6 +183,16 @@ fn read_bytes(data: &mut &[u8], len: usize) -> io::Result<Vec<u8>> {
     let (bytes, rest) = data.split_at(len);
     *data = rest;
     Ok(bytes.to_vec())
+}
+
+fn read_len_prefixed_bytes(data: &mut &[u8]) -> io::Result<Vec<u8>> {
+    let len = read_u32(data)? as usize;
+    read_bytes(data, len)
+}
+
+fn read_len_prefixed_utf8(data: &mut &[u8]) -> io::Result<String> {
+    String::from_utf8(read_len_prefixed_bytes(data)?)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8 key"))
 }
 
 #[cfg(test)]
