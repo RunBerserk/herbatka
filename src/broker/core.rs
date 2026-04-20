@@ -4,18 +4,19 @@
 //! Coordinates topic-level runtime behavior; persistence format is handled in `log::persistence`.
 
 use std::collections::{BTreeSet, HashMap};
-use std::fs::{OpenOptions, read_dir, remove_file};
-use std::io::{self, Seek};
+use std::fs::{read_dir, remove_file};
+use std::io;
 use std::path::{Path, PathBuf};
 
+use super::checkpoint;
+use super::checkpoint::{SegmentCheckpoint, TopicCheckpoint};
+use super::startup;
 use crate::config::BrokerConfig;
 use crate::log::message::Message;
-use crate::log::persistence::read_message;
 use crate::log::store::{Log, append_to_segment_file, estimate_record_size};
 use tracing::warn;
 
 const CHECKPOINT_FILE_NAME: &str = ".checkpoint";
-const CHECKPOINT_VERSION: &str = "v1";
 const CHECKPOINT_FLUSH_EVERY_APPENDS: usize = 128;
 
 pub struct Broker {
@@ -47,17 +48,6 @@ struct SegmentMeta {
     path: PathBuf,
 }
 
-#[derive(Clone)]
-struct SegmentCheckpoint {
-    base_offset: u64,
-    message_count: u64,
-    valid_len: u64,
-}
-
-struct TopicCheckpoint {
-    segments: Vec<SegmentCheckpoint>,
-}
-
 #[derive(Debug)]
 pub enum BrokerError {
     TopicAlreadyExists,
@@ -66,6 +56,7 @@ pub enum BrokerError {
 }
 
 impl Broker {
+    // ---- Constructors ----
     pub fn new() -> Self {
         Self::with_config(BrokerConfig::default())
     }
@@ -84,7 +75,10 @@ impl Broker {
             config,
         }
     }
+}
 
+impl Broker {
+    // ---- Paths and checkpoint I/O ----
     fn topic_dir_path(&self, topic: &str) -> PathBuf {
         self.config.data_dir.join(topic)
     }
@@ -113,7 +107,7 @@ impl Broker {
             }
         };
 
-        match parse_topic_checkpoint(&raw) {
+        match checkpoint::parse_topic_checkpoint(&raw) {
             Ok(checkpoint) => Some(checkpoint),
             Err(e) => {
                 warn!(
@@ -143,11 +137,20 @@ impl Broker {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let checkpoint = checkpoint_from_segments(&state.segments);
-        let encoded = encode_topic_checkpoint(&checkpoint);
+        let checkpoint = checkpoint::checkpoint_from_snapshots(
+            &state
+                .segments
+                .iter()
+                .map(|segment| (segment.base_offset, segment.message_count, segment.size_bytes))
+                .collect::<Vec<_>>(),
+        );
+        let encoded = checkpoint::encode_topic_checkpoint(&checkpoint);
         std::fs::write(path, encoded)
     }
+}
 
+impl Broker {
+    // ---- Public broker API ----
     pub fn create_topic(&mut self, topic: String) -> Result<(), BrokerError> {
         if self.topics.contains_key(&topic) {
             return Err(BrokerError::TopicAlreadyExists);
@@ -256,7 +259,10 @@ impl Broker {
         let state = self.topics.get(topic).ok_or(BrokerError::UnknownTopic)?;
         Ok(state.log.read_range(offset, limit))
     }
+}
 
+impl Broker {
+    // ---- Startup loading/discovery ----
     fn load_topic_state(&self, topic: &str) -> Result<TopicState, BrokerError> {
         let mut segments = self.discover_segments(topic).map_err(BrokerError::Io)?;
         if segments.is_empty() {
@@ -288,11 +294,17 @@ impl Broker {
                     .unwrap_or(false);
 
             if trusted_closed {
-                replay_trusted_closed_segment(segment, &mut log).map_err(BrokerError::Io)?;
+                let replay = startup::replay_trusted_closed_segment(&segment.path, &mut log)
+                    .map_err(BrokerError::Io)?;
+                segment.message_count = replay.message_count;
+                segment.size_bytes = replay.valid_len;
                 continue;
             }
 
-            replay_segment_with_tail_recovery(topic, segment, &mut log).map_err(BrokerError::Io)?;
+            let replay = startup::replay_segment_with_tail_recovery(topic, &segment.path, &mut log)
+                .map_err(BrokerError::Io)?;
+            segment.message_count = replay.message_count;
+            segment.size_bytes = replay.valid_len;
         }
 
         let state = TopicState {
@@ -302,10 +314,16 @@ impl Broker {
         };
 
         // Best-effort refresh so startup metadata converges even when fallback path was used.
-        let checkpoint = checkpoint_from_segments(&state.segments);
+        let checkpoint = checkpoint::checkpoint_from_snapshots(
+            &state
+                .segments
+                .iter()
+                .map(|segment| (segment.base_offset, segment.message_count, segment.size_bytes))
+                .collect::<Vec<_>>(),
+        );
         if let Err(e) = std::fs::write(
             self.topic_checkpoint_path(topic),
-            encode_topic_checkpoint(&checkpoint),
+            checkpoint::encode_topic_checkpoint(&checkpoint),
         ) {
             warn!(
                 topic = %topic,
@@ -362,7 +380,10 @@ impl Broker {
         segments.sort_by_key(|segment| segment.base_offset);
         Ok(segments)
     }
+}
 
+impl Broker {
+    // ---- Retention enforcement ----
     fn enforce_retention(&mut self, topic: &str) -> Result<bool, BrokerError> {
         let Some(max_topic_bytes) = self.config.max_topic_bytes else {
             return Ok(false);
@@ -384,130 +405,6 @@ impl Broker {
         }
         Ok(changed)
     }
-}
-
-fn replay_trusted_closed_segment(segment: &mut SegmentMeta, log: &mut Log) -> io::Result<()> {
-    let mut file = OpenOptions::new().read(true).open(&segment.path)?;
-    let mut count = 0u64;
-    while let Some(message) = read_message(&mut file)? {
-        log.append(message);
-        count += 1;
-    }
-    segment.message_count = count;
-    Ok(())
-}
-
-fn replay_segment_with_tail_recovery(
-    topic: &str,
-    segment: &mut SegmentMeta,
-    log: &mut Log,
-) -> io::Result<()> {
-    let mut file = OpenOptions::new().read(true).write(true).open(&segment.path)?;
-    let mut count = 0u64;
-    loop {
-        let last_good_pos = file.stream_position()?;
-        match read_message(&mut file) {
-            Ok(Some(message)) => {
-                log.append(message);
-                count += 1;
-            }
-            Ok(None) => break,
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                let original_len = file.metadata()?.len();
-                file.set_len(last_good_pos)?;
-                segment.size_bytes = last_good_pos;
-                warn!(
-                    topic = %topic,
-                    segment = %segment.path.display(),
-                    from_bytes = original_len,
-                    to_bytes = last_good_pos,
-                    "truncated corrupted tail during startup replay"
-                );
-                break;
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    segment.message_count = count;
-    Ok(())
-}
-
-fn checkpoint_from_segments(segments: &[SegmentMeta]) -> TopicCheckpoint {
-    TopicCheckpoint {
-        segments: segments
-            .iter()
-            .map(|segment| SegmentCheckpoint {
-                base_offset: segment.base_offset,
-                message_count: segment.message_count,
-                valid_len: segment.size_bytes,
-            })
-            .collect(),
-    }
-}
-
-fn encode_topic_checkpoint(checkpoint: &TopicCheckpoint) -> String {
-    let mut output = String::new();
-    output.push_str(CHECKPOINT_VERSION);
-    output.push('\n');
-    for segment in &checkpoint.segments {
-        output.push_str(&format!(
-            "{},{},{}\n",
-            segment.base_offset, segment.message_count, segment.valid_len
-        ));
-    }
-    output
-}
-
-fn parse_topic_checkpoint(raw: &str) -> io::Result<TopicCheckpoint> {
-    let mut lines = raw.lines();
-    let Some(version_line) = lines.next() else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "empty checkpoint",
-        ));
-    };
-    if version_line.trim() != CHECKPOINT_VERSION {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "unsupported checkpoint version",
-        ));
-    }
-
-    let mut segments = Vec::new();
-    for line in lines {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let mut parts = line.split(',');
-        let base_offset = parts
-            .next()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing base_offset"))?
-            .parse::<u64>()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid base_offset"))?;
-        let message_count = parts
-            .next()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing message_count"))?
-            .parse::<u64>()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid message_count"))?;
-        let valid_len = parts
-            .next()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing valid_len"))?
-            .parse::<u64>()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid valid_len"))?;
-        if parts.next().is_some() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "too many checkpoint fields",
-            ));
-        }
-        segments.push(SegmentCheckpoint {
-            base_offset,
-            message_count,
-            valid_len,
-        });
-    }
-
-    Ok(TopicCheckpoint { segments })
 }
 
 fn topic_name_from_entry(path: &Path) -> Option<&str> {
