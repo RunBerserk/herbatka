@@ -119,22 +119,38 @@ pub fn append_to_segment_file(
     message: &Message,
     fsync_policy: FsyncPolicy,
 ) -> io::Result<u64> {
-    if let Some(parent) = path.parent() {
-        create_dir_all(parent)?;
-    }
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    let bytes_written = estimate_record_size(message)? as u64;
+    ensure_parent_dir(path)?;
+    let mut file = open_append_file(path)?;
+    let record_size = estimate_record_size(message)? as u64;
+
     write_message(&mut file, message)?;
-    file.flush()?;
-    if matches!(fsync_policy, FsyncPolicy::Always) {
-        file.sync_all()?;
-    }
-    Ok(bytes_written)
+    flush_for_policy(&mut file, fsync_policy)?;
+
+    Ok(record_size)
 }
 
 pub fn estimate_record_size(message: &Message) -> io::Result<usize> {
     let encoded = encode_message(message)?;
     Ok(4 + encoded.len())
+}
+
+fn ensure_parent_dir(path: &Path) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        create_dir_all(parent)?;
+    }
+    Ok(())
+}
+
+fn open_append_file(path: &Path) -> io::Result<std::fs::File> {
+    OpenOptions::new().create(true).append(true).open(path)
+}
+
+fn flush_for_policy(file: &mut std::fs::File, fsync_policy: FsyncPolicy) -> io::Result<()> {
+    file.flush()?;
+    if matches!(fsync_policy, FsyncPolicy::Always) {
+        file.sync_all()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
