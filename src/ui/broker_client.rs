@@ -11,7 +11,12 @@ pub enum BrokerResponse {
 pub struct BrokerClient {
     addr: String,
     topic: String,
-    stream: Option<TcpStream>,
+    connection: Option<BrokerConnection>,
+}
+
+struct BrokerConnection {
+    writer: TcpStream,
+    reader: BufReader<TcpStream>,
 }
 
 impl BrokerClient {
@@ -19,7 +24,7 @@ impl BrokerClient {
         Self {
             addr: addr.into(),
             topic: topic.into(),
-            stream: None,
+            connection: None,
         }
     }
 
@@ -48,40 +53,16 @@ impl BrokerClient {
     }
 
     fn fetch_once(&mut self, offset: u64) -> Result<BrokerResponse, String> {
-        let topic = self.topic.clone();
-        let stream = self.ensure_connected()?;
-        let request = format!("FETCH {topic} {offset}\n");
-        if let Err(e) = stream.write_all(request.as_bytes()) {
-            let message = self.reset_with_error(format!("fetch write failed: {e}"));
-            return Err(message);
-        }
-        if let Err(e) = stream.flush() {
-            let message = self.reset_with_error(format!("fetch flush failed: {e}"));
-            return Err(message);
-        }
-
-        let reader_stream = match stream.try_clone() {
-            Ok(reader_stream) => reader_stream,
-            Err(e) => {
-                let message = self.reset_with_error(format!("reader clone failed: {e}"));
-                return Err(message);
-            }
+        let request = format!("FETCH {} {offset}\n", self.topic);
+        let result = {
+            let connection = self.ensure_connected()?;
+            fetch_once_on_connection(connection, &request)
         };
-        let mut reader = BufReader::new(reader_stream);
-        let mut line = String::new();
-        if let Err(e) = reader.read_line(&mut line) {
-            let message = self.reset_with_error(format!("fetch read failed: {e}"));
-            return Err(message);
-        }
-        if line.is_empty() {
-            return Err(self.reset_with_error("broker closed connection".to_string()));
-        }
-
-        parse_response_line(line.trim_end())
+        result.map_err(|message| self.reset_with_error(message))
     }
 
-    fn ensure_connected(&mut self) -> Result<&mut TcpStream, String> {
-        if self.stream.is_none() {
+    fn ensure_connected(&mut self) -> Result<&mut BrokerConnection, String> {
+        if self.connection.is_none() {
             let stream = TcpStream::connect(&self.addr)
                 .map_err(|e| format!("connect {} failed: {e}", self.addr))?;
             stream
@@ -90,17 +71,49 @@ impl BrokerClient {
             stream
                 .set_write_timeout(Some(Duration::from_millis(400)))
                 .map_err(|e| format!("set write timeout failed: {e}"))?;
-            self.stream = Some(stream);
+            let reader_stream = stream
+                .try_clone()
+                .map_err(|e| format!("reader clone failed: {e}"))?;
+            let reader = BufReader::new(reader_stream);
+            self.connection = Some(BrokerConnection {
+                writer: stream,
+                reader,
+            });
         }
-        self.stream
+        self.connection
             .as_mut()
             .ok_or_else(|| "connection not available".to_string())
     }
 
     fn reset_with_error(&mut self, message: String) -> String {
-        self.stream = None;
+        self.connection = None;
         message
     }
+}
+
+fn fetch_once_on_connection(
+    connection: &mut BrokerConnection,
+    request: &str,
+) -> Result<BrokerResponse, String> {
+    connection
+        .writer
+        .write_all(request.as_bytes())
+        .map_err(|e| format!("fetch write failed: {e}"))?;
+    connection
+        .writer
+        .flush()
+        .map_err(|e| format!("fetch flush failed: {e}"))?;
+
+    let mut line = String::new();
+    connection
+        .reader
+        .read_line(&mut line)
+        .map_err(|e| format!("fetch read failed: {e}"))?;
+    if line.is_empty() {
+        return Err("broker closed connection".to_string());
+    }
+
+    parse_response_line(line.trim_end())
 }
 
 fn parse_response_line(line: &str) -> Result<BrokerResponse, String> {

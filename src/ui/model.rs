@@ -13,7 +13,6 @@ pub struct FleetEvent {
 
 #[derive(Debug, Clone)]
 pub struct VehicleSnapshot {
-    pub vehicle_id: String,
     pub ts_ms: u64,
     pub speed: u64,
     pub lat: f64,
@@ -28,15 +27,21 @@ pub fn apply_payload(
 ) -> Result<(), String> {
     let event: FleetEvent = serde_json::from_str(payload)
         .map_err(|e| format!("invalid fleet payload at offset {offset}: {e}"))?;
+    let FleetEvent {
+        vehicle_id,
+        ts_ms,
+        speed,
+        lat,
+        lon,
+    } = event;
 
     let snapshot = VehicleSnapshot {
-        vehicle_id: event.vehicle_id.clone(),
-        ts_ms: event.ts_ms,
-        speed: event.speed,
-        lat: event.lat,
-        lon: event.lon,
+        ts_ms,
+        speed,
+        lat,
+        lon,
         last_offset: offset,
     };
-    fleet.insert(event.vehicle_id, snapshot);
+    fleet.insert(vehicle_id, snapshot);
     Ok(())
 }

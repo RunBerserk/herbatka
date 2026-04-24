@@ -149,10 +149,10 @@ impl eframe::App for UiShellApp {
                     egui::ScrollArea::vertical()
                         .max_height(220.0)
                         .show(ui, |ui| {
-                            for snapshot in self.fleet.values() {
+                            for (vehicle_id, snapshot) in &self.fleet {
                                 ui.label(format!(
                                     "{} | lat={:.5} lon={:.5} speed={} ts={} off={}",
-                                    snapshot.vehicle_id,
+                                    vehicle_id,
                                     snapshot.lat,
                                     snapshot.lon,
                                     snapshot.speed,
