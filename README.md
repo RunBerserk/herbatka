@@ -71,6 +71,12 @@ Expected summary format:
 
 - `simulation done: ok=<n>, err=<n>, total=<n> | connect_err=<n> ...`
 
+## UI quickstart
+
+Run the UI shell:
+
+`cargo run --bin ui`
+
 ## Roadmap notes
 
 - Keep work in small, reviewable steps.
