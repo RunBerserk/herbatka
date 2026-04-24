@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 
 use super::broker_client::BrokerClient;
+use super::fleet_stats::compute_fleet_stats;
 use super::model::{VehicleSnapshot, apply_payload};
 
 const DEFAULT_BROKER_ADDR: &str = "127.0.0.1:7000";
@@ -164,7 +165,7 @@ impl UiShellApp {
                 ui.add_space(8.0);
                 self.render_fleet_list(ui);
                 ui.add_space(8.0);
-                self.render_fleet_stats_placeholder(ui);
+                self.render_fleet_stats(ui);
                 ui.add_space(8.0);
                 self.render_broker_controls_placeholder(ui);
                 ui.add_space(8.0);
@@ -247,10 +248,31 @@ impl UiShellApp {
         });
     }
 
-    fn render_fleet_stats_placeholder(&self, ui: &mut egui::Ui) {
+    fn render_fleet_stats(&self, ui: &mut egui::Ui) {
+        let stats = compute_fleet_stats(&self.fleet, self.next_offset);
         ui.group(|ui| {
-            ui.label("Fleet Stats");
-            ui.small("online, stale, avg speed, topic lag");
+            ui.heading("Fleet Stats");
+            ui.label(format!("online: {}  /  stale: {}", stats.online, stats.stale));
+            if let Some(avg) = stats.avg_speed_kmh {
+                ui.label(format!("avg speed: {:.1} km/h", avg));
+            } else {
+                ui.label("avg speed: n/a");
+            }
+            ui.label(format!(
+                "read next offset: {}",
+                stats.read_next_offset
+            ));
+            if let Some(o) = stats.newest_buffered_offset {
+                ui.label(format!("newest buffered offset: {o}"));
+            } else {
+                ui.label("newest buffered offset: n/a");
+            }
+            if let Some(lag) = stats.lag_events {
+                ui.label(format!("UI lag (events): {lag}"));
+            } else {
+                ui.label("UI lag (events): n/a");
+            }
+            ui.small("Lag: UI read position vs. latest buffered offset (not full broker depth).");
         });
     }
 

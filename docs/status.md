@@ -40,11 +40,12 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 [ ] MVP UI client (`egui`, map-first)
  - [x] UI app shell (window + panel layout)
  - [x] Broker connection state + basic fleet list (read-only)
+ - [x] Selected vehicle telemetry panel
 ## In Progress
- - [ ] Selected vehicle telemetry panel
+ - [ ] Fleet stats panel (online/stale/avg speed/topic lag)
 ## Next Up
 simple UI
- - [ ] Fleet stats panel (online/stale/avg speed/topic lag)
+
  - [ ] Process output panel (stdout/stderr stream)
  - [ ] Process controls (start/stop broker + simulator) 
  - [ ] Basic error/reconnect handling
