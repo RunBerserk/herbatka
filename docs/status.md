@@ -37,11 +37,13 @@ Persistence and recovery baseline -> moving toward external access (TCP)
   - [x] Load profiles
   - [x] Docs + test harness
 - Extend startup replay performance improvements beyond checkpoint manifest (reduce decode work further; evaluate sparse index).
-## In Progress
- - [ ] UI app shell (window + panel layout)
-## Next Up
-simple
 [ ] MVP UI client (`egui`, map-first)
+ - [ ] UI app shell (window + panel layout)
+## In Progress
+- [ ] Broker connection state + basic fleet list (read-only)
+## Next Up
+simple UI
+
  - [ ] Broker connection state + basic fleet list (read-only)
  - [ ] Minimal map pane (lat/lon points + vehicle selection)
  - [ ] Selected vehicle telemetry panel

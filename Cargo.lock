@@ -1380,6 +1380,7 @@ dependencies = [
  "eframe",
  "egui",
  "serde",
+ "serde_json",
  "toml",
  "tracing",
  "tracing-subscriber",

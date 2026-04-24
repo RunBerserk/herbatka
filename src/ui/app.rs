@@ -1,4 +1,15 @@
+use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
+
 use eframe::egui;
+
+use super::broker_client::BrokerClient;
+use super::model::{VehicleSnapshot, apply_payload};
+
+const DEFAULT_BROKER_ADDR: &str = "127.0.0.1:7000";
+const DEFAULT_TOPIC: &str = "events";
+const POLL_INTERVAL: Duration = Duration::from_millis(250);
+const MAX_FETCH_PER_POLL: usize = 64;
 
 pub fn run() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -11,19 +22,89 @@ pub fn run() -> eframe::Result<()> {
     eframe::run_native(
         "Herbatka Fleet Console (UI Shell)",
         options,
-        Box::new(|_cc| Ok(Box::new(UiShellApp))),
+        Box::new(|_cc| Ok(Box::new(UiShellApp::new()))),
     )
 }
 
-struct UiShellApp;
+struct UiShellApp {
+    broker_client: BrokerClient,
+    fleet: BTreeMap<String, VehicleSnapshot>,
+    next_offset: u64,
+    parse_errors: u64,
+    connection: ConnectionState,
+    last_poll_at: Instant,
+}
+
+enum ConnectionState {
+    Connected { last_ok_at: Instant },
+    Disconnected { reason: String },
+}
+
+impl UiShellApp {
+    fn new() -> Self {
+        Self {
+            broker_client: BrokerClient::new(DEFAULT_BROKER_ADDR, DEFAULT_TOPIC),
+            fleet: BTreeMap::new(),
+            next_offset: 0,
+            parse_errors: 0,
+            connection: ConnectionState::Disconnected {
+                reason: "not connected yet".to_string(),
+            },
+            last_poll_at: Instant::now() - POLL_INTERVAL,
+        }
+    }
+
+    fn poll_broker(&mut self) {
+        if self.last_poll_at.elapsed() < POLL_INTERVAL {
+            return;
+        }
+        self.last_poll_at = Instant::now();
+
+        match self
+            .broker_client
+            .poll_from_offset(self.next_offset, MAX_FETCH_PER_POLL)
+        {
+            Ok(messages) => {
+                self.connection = ConnectionState::Connected {
+                    last_ok_at: Instant::now(),
+                };
+                for (offset, payload) in messages {
+                    if apply_payload(&mut self.fleet, offset, &payload).is_err() {
+                        self.parse_errors = self.parse_errors.saturating_add(1);
+                    }
+                    self.next_offset = offset.saturating_add(1);
+                }
+            }
+            Err(reason) => {
+                self.connection = ConnectionState::Disconnected { reason };
+            }
+        }
+    }
+
+    fn connection_text(&self) -> String {
+        match &self.connection {
+            ConnectionState::Connected { last_ok_at } => format!(
+                "Connection: connected (offset={}, last_ok={}ms)",
+                self.next_offset,
+                last_ok_at.elapsed().as_millis()
+            ),
+            ConnectionState::Disconnected { reason } => {
+                format!("Connection: disconnected ({reason})")
+            }
+        }
+    }
+}
 
 impl eframe::App for UiShellApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_broker();
+        ctx.request_repaint_after(POLL_INTERVAL);
+
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.strong("Herbatka Fleet Console");
                 ui.separator();
-                ui.label("Connection: disconnected");
+                ui.label(self.connection_text());
                 ui.separator();
                 ui.label("Env: local");
                 ui.separator();
@@ -59,8 +140,30 @@ impl eframe::App for UiShellApp {
                 ui.separator();
 
                 ui.group(|ui| {
-                    ui.label("Selected Vehicle");
-                    ui.small("id, lat, lon, speed, heading, updated_at");
+                    ui.label(format!("Fleet (read-only): {} vehicles", self.fleet.len()));
+                    ui.small(format!(
+                        "topic={}, next_offset={}, parse_errors={}",
+                        DEFAULT_TOPIC, self.next_offset, self.parse_errors
+                    ));
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .max_height(220.0)
+                        .show(ui, |ui| {
+                            for snapshot in self.fleet.values() {
+                                ui.label(format!(
+                                    "{} | lat={:.5} lon={:.5} speed={} ts={} off={}",
+                                    snapshot.vehicle_id,
+                                    snapshot.lat,
+                                    snapshot.lon,
+                                    snapshot.speed,
+                                    snapshot.ts_ms,
+                                    snapshot.last_offset
+                                ));
+                            }
+                            if self.fleet.is_empty() {
+                                ui.small("No vehicles yet.");
+                            }
+                        });
                 });
 
                 ui.add_space(8.0);
