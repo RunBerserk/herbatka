@@ -38,20 +38,17 @@ Persistence and recovery baseline -> moving toward external access (TCP)
   - [x] Docs + test harness
 - Extend startup replay performance improvements beyond checkpoint manifest (reduce decode work further; evaluate sparse index).
 [ ] MVP UI client (`egui`, map-first)
- - [ ] UI app shell (window + panel layout)
+ - [x] UI app shell (window + panel layout)
+ - [x] Broker connection state + basic fleet list (read-only)
 ## In Progress
-- [ ] Broker connection state + basic fleet list (read-only)
+ - [ ] Selected vehicle telemetry panel
 ## Next Up
 simple UI
-
- - [ ] Broker connection state + basic fleet list (read-only)
- - [ ] Minimal map pane (lat/lon points + vehicle selection)
- - [ ] Selected vehicle telemetry panel
  - [ ] Fleet stats panel (online/stale/avg speed/topic lag)
- - [ ] Process controls (start/stop broker + simulator)
  - [ ] Process output panel (stdout/stderr stream)
+ - [ ] Process controls (start/stop broker + simulator) 
  - [ ] Basic error/reconnect handling
-
+ - [ ] Minimal map pane (lat/lon points + vehicle selection)
 ## Later (TODO, not now)
 
 - Protobuf encoding

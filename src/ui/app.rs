@@ -29,6 +29,8 @@ pub fn run() -> eframe::Result<()> {
 struct UiShellApp {
     broker_client: BrokerClient,
     fleet: BTreeMap<String, VehicleSnapshot>,
+    /// Selected `vehicle_id` (map key), if any and still present in `fleet`.
+    selected_id: Option<String>,
     next_offset: u64,
     parse_errors: u64,
     connection: ConnectionState,
@@ -45,12 +47,21 @@ impl UiShellApp {
         Self {
             broker_client: BrokerClient::new(DEFAULT_BROKER_ADDR, DEFAULT_TOPIC),
             fleet: BTreeMap::new(),
+            selected_id: None,
             next_offset: 0,
             parse_errors: 0,
             connection: ConnectionState::Disconnected {
                 reason: "not connected yet".to_string(),
             },
             last_poll_at: Instant::now() - POLL_INTERVAL,
+        }
+    }
+
+    fn reconcile_selection(&mut self) {
+        if let Some(id) = &self.selected_id {
+            if !self.fleet.contains_key(id) {
+                self.selected_id = None;
+            }
         }
     }
 
@@ -98,6 +109,7 @@ impl UiShellApp {
 impl eframe::App for UiShellApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_broker();
+        self.reconcile_selection();
         ctx.request_repaint_after(POLL_INTERVAL);
 
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
@@ -145,20 +157,67 @@ impl eframe::App for UiShellApp {
                         "topic={}, next_offset={}, parse_errors={}",
                         DEFAULT_TOPIC, self.next_offset, self.parse_errors
                     ));
+                });
+
+                ui.add_space(8.0);
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Selected vehicle");
+                        if ui
+                            .add_enabled(
+                                self.selected_id.is_some(),
+                                egui::Button::new("Clear"),
+                            )
+                            .clicked()
+                        {
+                            self.selected_id = None;
+                        }
+                    });
+                    ui.separator();
+                    match &self.selected_id {
+                        None => {
+                            ui.label("No vehicle selected.");
+                            ui.small("Click a row in the list below.");
+                        }
+                        Some(id) => {
+                            if let Some(snap) = self.fleet.get(id) {
+                                ui.label(format!("vehicle_id: {id}"));
+                                ui.label(format!("lat: {:.6}", snap.lat));
+                                ui.label(format!("lon: {:.6}", snap.lon));
+                                ui.label(format!("speed: {} km/h", snap.speed));
+                                ui.label(format!("ts_ms: {}", snap.ts_ms));
+                                ui.label(format!("last_offset: {}", snap.last_offset));
+                            }
+                        }
+                    }
+                });
+
+                ui.add_space(8.0);
+                ui.group(|ui| {
+                    ui.label("Fleet list");
                     ui.separator();
                     egui::ScrollArea::vertical()
                         .max_height(220.0)
                         .show(ui, |ui| {
                             for (vehicle_id, snapshot) in &self.fleet {
-                                ui.label(format!(
-                                    "{} | lat={:.5} lon={:.5} speed={} ts={} off={}",
+                                let is_selected = self
+                                    .selected_id
+                                    .as_ref()
+                                    .is_some_and(|s| s == vehicle_id);
+                                let summary = format!(
+                                    "{}  lat={:.5} lon={:.5}  speed={}  off={}",
                                     vehicle_id,
                                     snapshot.lat,
                                     snapshot.lon,
                                     snapshot.speed,
-                                    snapshot.ts_ms,
                                     snapshot.last_offset
-                                ));
+                                );
+                                if ui
+                                    .selectable_label(is_selected, summary)
+                                    .clicked()
+                                {
+                                    self.selected_id = Some(vehicle_id.clone());
+                                }
                             }
                             if self.fleet.is_empty() {
                                 ui.small("No vehicles yet.");
