@@ -11,16 +11,15 @@ pub(crate) struct ReplayOutcome {
     pub(crate) valid_len: u64,
 }
 
-pub(crate) fn replay_trusted_closed_segment(path: &Path, log: &mut Log) -> io::Result<ReplayOutcome> {
-    let mut file = OpenOptions::new().read(true).open(path)?;
-    let mut count = 0u64;
-    while let Some(message) = read_message(&mut file)? {
-        log.append(message);
-        count += 1;
-    }
-    let valid_len = file.metadata()?.len();
+pub(crate) fn skip_trusted_closed_segment(
+    path: &Path,
+    log: &mut Log,
+    message_count: u64,
+) -> io::Result<ReplayOutcome> {
+    let valid_len = std::fs::metadata(path)?.len();
+    log.advance_base_offset(message_count);
     Ok(ReplayOutcome {
-        message_count: count,
+        message_count,
         valid_len,
     })
 }

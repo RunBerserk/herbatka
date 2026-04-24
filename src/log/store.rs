@@ -91,6 +91,10 @@ impl Log {
         self.base_offset
     }
 
+    pub fn advance_base_offset(&mut self, count: u64) {
+        self.base_offset = self.base_offset.saturating_add(count);
+    }
+
     pub fn load_from_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
         Self::load_from_reader_with_base(reader, 0)
     }

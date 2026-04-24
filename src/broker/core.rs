@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use super::checkpoint;
 use super::checkpoint::{SegmentCheckpoint, TopicCheckpoint};
+use super::index;
+use super::index::SparseIndexEntry;
 use super::startup;
 use crate::config::BrokerConfig;
 use crate::log::message::Message;
@@ -18,6 +20,7 @@ use tracing::warn;
 
 const CHECKPOINT_FILE_NAME: &str = ".checkpoint";
 const CHECKPOINT_FLUSH_EVERY_APPENDS: usize = 128;
+const SPARSE_INDEX_STRIDE: u64 = 64;
 
 pub struct Broker {
     topics: HashMap<String, TopicState>,
@@ -121,6 +124,22 @@ impl Broker {
         }
     }
 
+    fn load_segment_index(&self, topic: &str, segment_path: &Path) -> Option<Vec<SparseIndexEntry>> {
+        match index::read_sparse_index(segment_path) {
+            Ok(entries) => Some(entries),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            Err(e) => {
+                warn!(
+                    topic = %topic,
+                    segment = %segment_path.display(),
+                    error = %e,
+                    "invalid segment index, falling back to full replay"
+                );
+                None
+            }
+        }
+    }
+
     fn persist_topic_checkpoint(&self, topic: &str) -> io::Result<()> {
         let path = self.topic_checkpoint_path(topic);
         let Some(state) = self.topics.get(topic) else {
@@ -188,7 +207,7 @@ impl Broker {
 
     pub fn produce(&mut self, topic: &str, message: Message) -> Result<u64, BrokerError> {
         // Durability policy is controlled by `config.fsync_policy`.
-        let (offset, rolled_segment, cadence_due) = {
+        let (offset, rolled_segment, cadence_due, sparse_index_entry) = {
             let state = self
                 .topics
                 .get_mut(topic)
@@ -222,6 +241,8 @@ impl Broker {
                 .segments
                 .last_mut()
                 .expect("active segment should exist");
+            let message_index_in_segment = active.message_count;
+            let record_position = active.size_bytes;
             let bytes_written =
                 append_to_segment_file(&active.path, &message, self.config.fsync_policy)
                     .map_err(BrokerError::Io)?;
@@ -231,8 +252,30 @@ impl Broker {
             state.pending_checkpoint_appends += 1;
 
             let cadence_due = state.pending_checkpoint_appends >= CHECKPOINT_FLUSH_EVERY_APPENDS;
-            (offset, should_roll, cadence_due)
+            let sparse_index_entry = if message_index_in_segment % SPARSE_INDEX_STRIDE == 0 {
+                Some((
+                    active.path.clone(),
+                    SparseIndexEntry {
+                        offset,
+                        position: record_position,
+                    },
+                ))
+            } else {
+                None
+            };
+            (offset, should_roll, cadence_due, sparse_index_entry)
         };
+
+        if let Some((segment_path, entry)) = sparse_index_entry
+            && let Err(e) = index::append_index_entry(&segment_path, &entry)
+        {
+            warn!(
+                topic = %topic,
+                segment = %segment_path.display(),
+                error = %e,
+                "failed to write sparse index entry; startup will fall back safely"
+            );
+        }
 
         let retention_changed = self.enforce_retention(topic)?;
         let checkpoint_due = rolled_segment || retention_changed || cadence_due;
@@ -286,16 +329,34 @@ impl Broker {
             }
             let is_tail_segment = idx == segments_len - 1;
             let trusted_closed = !is_tail_segment
+                && log.is_empty()
                 && checkpoint_by_base
                     .get(&segment.base_offset)
                     .map(|entry| {
-                        entry.valid_len == segment.size_bytes && entry.message_count > 0
+                        if entry.valid_len != segment.size_bytes || entry.message_count == 0 {
+                            return false;
+                        }
+                        let Some(index_entries) = self.load_segment_index(topic, &segment.path)
+                        else {
+                            return false;
+                        };
+                        index::is_index_compatible(
+                            &index_entries,
+                            segment.base_offset,
+                            entry.message_count,
+                            entry.valid_len,
+                            SPARSE_INDEX_STRIDE,
+                        )
                     })
                     .unwrap_or(false);
 
             if trusted_closed {
-                let replay = startup::replay_trusted_closed_segment(&segment.path, &mut log)
-                    .map_err(BrokerError::Io)?;
+                let trusted = checkpoint_by_base
+                    .get(&segment.base_offset)
+                    .expect("trusted segment must have checkpoint entry");
+                let replay =
+                    startup::skip_trusted_closed_segment(&segment.path, &mut log, trusted.message_count)
+                        .map_err(BrokerError::Io)?;
                 segment.message_count = replay.message_count;
                 segment.size_bytes = replay.valid_len;
                 continue;
@@ -400,6 +461,7 @@ impl Broker {
             }
             let evicted = state.segments.remove(0);
             remove_file(&evicted.path).map_err(BrokerError::Io)?;
+            index::remove_sidecar_for_segment(&evicted.path).map_err(BrokerError::Io)?;
             state.log.drop_prefix(evicted.message_count as usize);
             changed = true;
         }

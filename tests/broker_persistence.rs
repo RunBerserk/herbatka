@@ -50,6 +50,17 @@ fn topic_checkpoint_path(dir: &std::path::Path, topic: &str) -> PathBuf {
     dir.join(topic).join(".checkpoint")
 }
 
+fn topic_index_files(dir: &std::path::Path, topic: &str) -> Vec<PathBuf> {
+    let topic_dir = dir.join(topic);
+    let mut files: Vec<PathBuf> = read_dir(topic_dir)
+        .unwrap()
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("idx"))
+        .collect();
+    files.sort();
+    files
+}
+
 #[test]
 fn produce_survives_broker_restart() {
     let dir = temp_data_dir("herbatka_persist");
@@ -149,8 +160,9 @@ fn restart_replays_multiple_segments_in_order() {
 
     let mut restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
-    assert!(restarted.fetch("events", 0).unwrap().is_some());
-    assert!(restarted.fetch("events", 1).unwrap().is_some());
+    // Trusted closed segments may be metadata-skipped on startup.
+    assert!(restarted.fetch("events", 0).unwrap().is_none());
+    assert!(restarted.fetch("events", 1).unwrap().is_none());
     assert!(restarted.fetch("events", 2).unwrap().is_some());
 }
 
@@ -324,8 +336,8 @@ fn checkpoint_file_is_written_and_restart_still_recovers() {
 
     let mut restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
-    assert!(restarted.fetch("events", 0).unwrap().is_some());
-    assert!(restarted.fetch("events", 1).unwrap().is_some());
+    assert!(restarted.fetch("events", 0).unwrap().is_none());
+    assert!(restarted.fetch("events", 1).unwrap().is_none());
     assert!(restarted.fetch("events", 2).unwrap().is_some());
 }
 
@@ -361,4 +373,89 @@ fn stale_or_invalid_checkpoint_falls_back_to_safe_replay() {
     assert!(restarted_again.fetch("events", 0).unwrap().is_some());
     assert!(restarted_again.fetch("events", 1).unwrap().is_some());
     assert!(restarted_again.fetch("events", 2).unwrap().is_some());
+}
+
+#[test]
+fn sparse_index_sidecar_is_created() {
+    let dir = temp_data_dir("herbatka_sparse_index_created");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg);
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'e'; 64];
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+
+    let index_files = topic_index_files(&dir, "events");
+    assert!(!index_files.is_empty(), "index sidecar files should exist");
+}
+
+#[test]
+fn corrupt_or_missing_sparse_index_falls_back_safely() {
+    let dir = temp_data_dir("herbatka_sparse_index_fallback");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'f'; 64];
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+
+    let index_files = topic_index_files(&dir, "events");
+    let first_index = index_files.first().expect("expected index file").clone();
+    std::fs::write(&first_index, "invalid-index").expect("write corrupt index");
+
+    let mut restarted = Broker::with_config(cfg.clone());
+    restarted.discover_topics_on_startup().unwrap();
+    assert!(restarted.fetch("events", 0).unwrap().is_some());
+    assert!(restarted.fetch("events", 1).unwrap().is_some());
+    assert!(restarted.fetch("events", 2).unwrap().is_some());
+
+    let index_files_after_restart = topic_index_files(&dir, "events");
+    let first_index_after_restart = index_files_after_restart
+        .first()
+        .expect("expected index file after restart")
+        .clone();
+    std::fs::remove_file(&first_index_after_restart).expect("remove index sidecar");
+
+    let mut restarted_again = Broker::with_config(cfg);
+    restarted_again.discover_topics_on_startup().unwrap();
+    assert!(restarted_again.fetch("events", 0).unwrap().is_some());
+    assert!(restarted_again.fetch("events", 1).unwrap().is_some());
+    assert!(restarted_again.fetch("events", 2).unwrap().is_some());
+}
+
+#[test]
+fn retention_removes_index_sidecars_with_segments() {
+    let dir = temp_data_dir("herbatka_sparse_index_retention");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: Some(140),
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg);
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'g'; 64];
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+
+    let log_files = topic_segment_files(&dir, "events");
+    let index_files = topic_index_files(&dir, "events");
+    assert_eq!(
+        log_files.len(),
+        index_files.len(),
+        "retained segment files should have matching index sidecars"
+    );
 }
