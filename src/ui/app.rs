@@ -42,6 +42,7 @@ enum ConnectionState {
     Disconnected { reason: String },
 }
 
+/// Construction and broker polling.
 impl UiShellApp {
     fn new() -> Self {
         Self {
@@ -104,14 +105,17 @@ impl UiShellApp {
             }
         }
     }
-}
 
-impl eframe::App for UiShellApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn step_frame(&mut self, ctx: &egui::Context) {
         self.poll_broker();
         self.reconcile_selection();
         ctx.request_repaint_after(POLL_INTERVAL);
+    }
+}
 
+/// Egui layout split out so `update` stays a short list of high-level steps.
+impl UiShellApp {
+    fn show_top_bar(&self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.strong("Herbatka Fleet Console");
@@ -125,7 +129,9 @@ impl eframe::App for UiShellApp {
                 ui.label("Status: shell mode");
             });
         });
+    }
 
+    fn show_bottom_panels(&self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("bottom_panels")
             .resizable(true)
             .default_height(200.0)
@@ -143,115 +149,134 @@ impl eframe::App for UiShellApp {
                     });
                 });
             });
+    }
 
+    fn show_right_sidebar(&mut self, ctx: &egui::Context) {
         egui::SidePanel::right("right_sidebar")
             .resizable(true)
             .default_width(330.0)
             .show(ctx, |ui| {
                 ui.heading("Telemetry and Controls");
                 ui.separator();
-
-                ui.group(|ui| {
-                    ui.label(format!("Fleet (read-only): {} vehicles", self.fleet.len()));
-                    ui.small(format!(
-                        "topic={}, next_offset={}, parse_errors={}",
-                        DEFAULT_TOPIC, self.next_offset, self.parse_errors
-                    ));
-                });
-
+                self.render_fleet_summary(ui);
                 ui.add_space(8.0);
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.heading("Selected vehicle");
-                        if ui
-                            .add_enabled(
-                                self.selected_id.is_some(),
-                                egui::Button::new("Clear"),
-                            )
-                            .clicked()
-                        {
-                            self.selected_id = None;
-                        }
-                    });
-                    ui.separator();
-                    match &self.selected_id {
-                        None => {
-                            ui.label("No vehicle selected.");
-                            ui.small("Click a row in the list below.");
-                        }
-                        Some(id) => {
-                            if let Some(snap) = self.fleet.get(id) {
-                                ui.label(format!("vehicle_id: {id}"));
-                                ui.label(format!("lat: {:.6}", snap.lat));
-                                ui.label(format!("lon: {:.6}", snap.lon));
-                                ui.label(format!("speed: {} km/h", snap.speed));
-                                ui.label(format!("ts_ms: {}", snap.ts_ms));
-                                ui.label(format!("last_offset: {}", snap.last_offset));
-                            }
+                self.render_selected_vehicle_panel(ui);
+                ui.add_space(8.0);
+                self.render_fleet_list(ui);
+                ui.add_space(8.0);
+                self.render_fleet_stats_placeholder(ui);
+                ui.add_space(8.0);
+                self.render_broker_controls_placeholder(ui);
+                ui.add_space(8.0);
+                self.render_sim_controls_placeholder(ui);
+            });
+    }
+
+    fn render_fleet_summary(&self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label(format!("Fleet (read-only): {} vehicles", self.fleet.len()));
+            ui.small(format!(
+                "topic={}, next_offset={}, parse_errors={}",
+                DEFAULT_TOPIC, self.next_offset, self.parse_errors
+            ));
+        });
+    }
+
+    fn render_selected_vehicle_panel(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.heading("Selected vehicle");
+                if ui
+                    .add_enabled(
+                        self.selected_id.is_some(),
+                        egui::Button::new("Clear"),
+                    )
+                    .clicked()
+                {
+                    self.selected_id = None;
+                }
+            });
+            ui.separator();
+            match &self.selected_id {
+                None => {
+                    ui.label("No vehicle selected.");
+                    ui.small("Click a row in the list below.");
+                }
+                Some(id) => {
+                    if let Some(snap) = self.fleet.get(id) {
+                        ui.label(format!("vehicle_id: {id}"));
+                        ui.label(format!("lat: {:.6}", snap.lat));
+                        ui.label(format!("lon: {:.6}", snap.lon));
+                        ui.label(format!("speed: {} km/h", snap.speed));
+                        ui.label(format!("ts_ms: {}", snap.ts_ms));
+                        ui.label(format!("last_offset: {}", snap.last_offset));
+                    }
+                }
+            }
+        });
+    }
+
+    fn render_fleet_list(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label("Fleet list");
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .max_height(220.0)
+                .show(ui, |ui| {
+                    for (vehicle_id, snapshot) in &self.fleet {
+                        let is_selected = self
+                            .selected_id
+                            .as_ref()
+                            .is_some_and(|s| s == vehicle_id);
+                        let summary = format!(
+                            "{}  lat={:.5} lon={:.5}  speed={}  off={}",
+                            vehicle_id,
+                            snapshot.lat,
+                            snapshot.lon,
+                            snapshot.speed,
+                            snapshot.last_offset
+                        );
+                        if ui.selectable_label(is_selected, summary).clicked() {
+                            self.selected_id = Some(vehicle_id.clone());
                         }
                     }
+                    if self.fleet.is_empty() {
+                        ui.small("No vehicles yet.");
+                    }
                 });
+        });
+    }
 
-                ui.add_space(8.0);
-                ui.group(|ui| {
-                    ui.label("Fleet list");
-                    ui.separator();
-                    egui::ScrollArea::vertical()
-                        .max_height(220.0)
-                        .show(ui, |ui| {
-                            for (vehicle_id, snapshot) in &self.fleet {
-                                let is_selected = self
-                                    .selected_id
-                                    .as_ref()
-                                    .is_some_and(|s| s == vehicle_id);
-                                let summary = format!(
-                                    "{}  lat={:.5} lon={:.5}  speed={}  off={}",
-                                    vehicle_id,
-                                    snapshot.lat,
-                                    snapshot.lon,
-                                    snapshot.speed,
-                                    snapshot.last_offset
-                                );
-                                if ui
-                                    .selectable_label(is_selected, summary)
-                                    .clicked()
-                                {
-                                    self.selected_id = Some(vehicle_id.clone());
-                                }
-                            }
-                            if self.fleet.is_empty() {
-                                ui.small("No vehicles yet.");
-                            }
-                        });
-                });
+    fn render_fleet_stats_placeholder(&self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label("Fleet Stats");
+            ui.small("online, stale, avg speed, topic lag");
+        });
+    }
 
-                ui.add_space(8.0);
-                ui.group(|ui| {
-                    ui.label("Fleet Stats");
-                    ui.small("online, stale, avg speed, topic lag");
-                });
-
-                ui.add_space(8.0);
-                ui.group(|ui| {
-                    ui.label("Broker Controls");
-                    ui.horizontal(|ui| {
-                        let _ = ui.button("Start");
-                        let _ = ui.button("Stop");
-                    });
-                });
-
-                ui.add_space(8.0);
-                ui.group(|ui| {
-                    ui.label("Simulation Controls");
-                    ui.horizontal(|ui| {
-                        let _ = ui.button("Start");
-                        let _ = ui.button("Pause");
-                        let _ = ui.button("Stop");
-                    });
-                    ui.small("Scenario: (placeholder)");
-                });
+    fn render_broker_controls_placeholder(&self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label("Broker Controls");
+            ui.horizontal(|ui| {
+                let _ = ui.button("Start");
+                let _ = ui.button("Stop");
             });
+        });
+    }
 
+    fn render_sim_controls_placeholder(&self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label("Simulation Controls");
+            ui.horizontal(|ui| {
+                let _ = ui.button("Start");
+                let _ = ui.button("Pause");
+                let _ = ui.button("Stop");
+            });
+            ui.small("Scenario: (placeholder)");
+        });
+    }
+
+    fn show_map_pane(&self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Map Pane");
             ui.separator();
@@ -264,5 +289,15 @@ impl eframe::App for UiShellApp {
                 let _ = ui.button("Follow Vehicle");
             });
         });
+    }
+}
+
+impl eframe::App for UiShellApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.step_frame(ctx);
+        self.show_top_bar(ctx);
+        self.show_bottom_panels(ctx);
+        self.show_right_sidebar(ctx);
+        self.show_map_pane(ctx);
     }
 }
