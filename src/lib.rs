@@ -7,3 +7,4 @@ pub mod config;
 pub mod log;
 pub mod observability;
 pub mod tcp;
+pub mod ui;
