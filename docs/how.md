@@ -32,6 +32,14 @@ How `--scenario` and `--load-profile` combine into effective event cadence.
 
 ![Simulator load flow](../assets/diagrams/svg/simulator-load-flow.svg)
 
+### UI draft (map-first fleet view)
+
+First-pass layout for a Rust desktop UI (`egui`-first), centered on a vehicle map with telemetry and broker/simulator controls.
+
+- Draft doc: [UI Draft](ui-draft.md)
+- Mermaid source: `../assets/diagrams/mmd/fleet-ui-draft.mmd`
+- SVG preview: `../assets/diagrams/svg/fleet-ui-draft.svg`
+
 
 
 

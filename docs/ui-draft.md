@@ -1,0 +1,47 @@
+# UI Draft (Map-First Fleet View)
+
+First draft for a minimal Rust desktop UI (`egui`-first) that is centered on live vehicle positions, with telemetry and process control beside the map.
+
+## Mermaid source
+
+Source of truth for iteration:
+
+- `assets/diagrams/mmd/fleet-ui-draft.mmd`
+
+```mermaid
+flowchart LR
+    subgraph app [Herbatka Fleet Console]
+        topbar["Top Bar: Connection | Env | Theme | Status"]
+
+        subgraph main [Main Area]
+            subgraph leftPane [Map Pane]
+                mapCanvas["Vehicle Map (lat/lon markers)"]
+                mapControls["Zoom | Fit Fleet | Follow Vehicle"]
+            end
+
+            subgraph rightPane [Telemetry and Controls]
+                vehicleCard["Selected Vehicle\nid, lat, lon, speed, heading, updated_at"]
+                fleetStats["Fleet Stats\nonline, stale, avg speed, topic lag"]
+                brokerControls["Process Controls\nStart Broker | Stop Broker"]
+                simControls["Simulation Controls\nStart Simulator | Pause | Stop | Scenario"]
+            end
+        end
+
+        subgraph bottom [Bottom Panels]
+            eventLog["Event/Command Log"]
+            processLog["Broker/Simulator Output"]
+        end
+    end
+
+    topbar --> main
+    main --> bottom
+    mapCanvas --> vehicleCard
+    simControls --> processLog
+    brokerControls --> processLog
+```
+
+## SVG preview
+
+Rendered static draft:
+
+![Fleet UI draft](../assets/diagrams/svg/fleet-ui-draft.svg)

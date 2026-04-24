@@ -36,17 +36,17 @@ Persistence and recovery baseline -> moving toward external access (TCP)
   - [x] Reliability/observability
   - [x] Load profiles
   - [x] Docs + test harness
-
-## In Progress
-
-## Next Up
 - Extend startup replay performance improvements beyond checkpoint manifest (reduce decode work further; evaluate sparse index).
+## In Progress
+- simple UI
+## Next Up
+
 
 ## Later (TODO, not now)
 
 - Protobuf encoding
 - QUIC transport
-- simple UI
+
 - Bevy UI integration
 - Real IoT client (Ox64)
 - scripts, skills folder
