@@ -1,11 +1,17 @@
 use std::collections::BTreeMap;
+use std::process::Child;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use eframe::egui;
 
 use super::broker_client::BrokerClient;
+use super::broker_subprocess;
 use super::fleet_stats::compute_fleet_stats;
 use super::model::{VehicleSnapshot, apply_payload};
+use super::process_log::{
+    LogLine, LogRing, LogSource, LogStream, drain_into_ring, DRAIN_PER_FRAME_CAP,
+};
 
 const DEFAULT_BROKER_ADDR: &str = "127.0.0.1:7000";
 const DEFAULT_TOPIC: &str = "events";
@@ -36,6 +42,12 @@ struct UiShellApp {
     parse_errors: u64,
     connection: ConnectionState,
     last_poll_at: Instant,
+
+    log_tx: mpsc::Sender<LogLine>,
+    log_rx: mpsc::Receiver<LogLine>,
+    log_ring: LogRing,
+    /// Broker child when started from **Broker Controls** (stdout/stderr pumped to `log_tx`).
+    broker_child: Option<Child>,
 }
 
 enum ConnectionState {
@@ -46,6 +58,7 @@ enum ConnectionState {
 /// Construction and broker polling.
 impl UiShellApp {
     fn new() -> Self {
+        let (log_tx, log_rx) = mpsc::channel();
         Self {
             broker_client: BrokerClient::new(DEFAULT_BROKER_ADDR, DEFAULT_TOPIC),
             fleet: BTreeMap::new(),
@@ -56,6 +69,10 @@ impl UiShellApp {
                 reason: "not connected yet".to_string(),
             },
             last_poll_at: Instant::now() - POLL_INTERVAL,
+            log_tx,
+            log_rx,
+            log_ring: LogRing::with_default_cap(),
+            broker_child: None,
         }
     }
 
@@ -110,6 +127,9 @@ impl UiShellApp {
     fn step_frame(&mut self, ctx: &egui::Context) {
         self.poll_broker();
         self.reconcile_selection();
+        if drain_into_ring(&self.log_rx, &mut self.log_ring, DRAIN_PER_FRAME_CAP) {
+            ctx.request_repaint();
+        }
         ctx.request_repaint_after(POLL_INTERVAL);
     }
 }
@@ -132,7 +152,7 @@ impl UiShellApp {
         });
     }
 
-    fn show_bottom_panels(&self, ctx: &egui::Context) {
+    fn show_bottom_panels(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("bottom_panels")
             .resizable(true)
             .default_height(200.0)
@@ -144,9 +164,7 @@ impl UiShellApp {
                         ui.label("No events yet.");
                     });
                     columns[1].group(|ui| {
-                        ui.heading("Broker / Simulator Output");
-                        ui.separator();
-                        ui.label("No process output yet.");
+                        self.render_process_output_panel(ui);
                     });
                 });
             });
@@ -167,7 +185,7 @@ impl UiShellApp {
                 ui.add_space(8.0);
                 self.render_fleet_stats(ui);
                 ui.add_space(8.0);
-                self.render_broker_controls_placeholder(ui);
+                self.render_broker_controls(ui);
                 ui.add_space(8.0);
                 self.render_sim_controls_placeholder(ui);
             });
@@ -276,12 +294,74 @@ impl UiShellApp {
         });
     }
 
-    fn render_broker_controls_placeholder(&self, ui: &mut egui::Ui) {
+    fn render_process_output_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Broker / Simulator Output");
+        ui.label(format!("{} line(s) buffered", self.log_ring.len()));
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("Clear log").clicked() {
+                self.log_ring.clear();
+            }
+        });
+        ui.separator();
+        let text = self.log_ring.as_single_text();
+        if text.is_empty() {
+            ui.label("No process output yet. Use Broker Controls: Start, or an external process.");
+        } else {
+            egui::ScrollArea::vertical()
+                .id_salt("process_output_log")
+                .max_height(160.0)
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&text).monospace()
+                        )
+                    );
+                });
+        }
+    }
+
+    fn render_broker_controls(&mut self, ui: &mut egui::Ui) {
+        let running = self.broker_child.is_some();
         ui.group(|ui| {
             ui.label("Broker Controls");
             ui.horizontal(|ui| {
-                let _ = ui.button("Start");
-                let _ = ui.button("Stop");
+                if ui
+                    .add_enabled(!running, egui::Button::new("Start"))
+                    .clicked()
+                {
+                    match broker_subprocess::spawn_broker(&self.log_tx) {
+                        Ok(child) => {
+                            self.broker_child = Some(child);
+                            let _ = self.log_tx.send(LogLine {
+                                source: LogSource::Broker,
+                                stream: LogStream::Stdout,
+                                text: "UI: broker process started\n".to_string(),
+                            });
+                        }
+                        Err(e) => {
+                            let _ = self.log_tx.send(LogLine {
+                                source: LogSource::Broker,
+                                stream: LogStream::Stderr,
+                                text: format!("UI: {e}\n"),
+                            });
+                        }
+                    }
+                }
+                if ui
+                    .add_enabled(running, egui::Button::new("Stop"))
+                    .clicked()
+                {
+                    if let Some(mut c) = self.broker_child.take() {
+                        let _ = c.kill();
+                        let _ = c.wait();
+                    }
+                    let _ = self.log_tx.send(LogLine {
+                        source: LogSource::Broker,
+                        stream: LogStream::Stdout,
+                        text: "UI: broker process stopped\n".to_string(),
+                    });
+                }
             });
         });
     }
@@ -290,11 +370,11 @@ impl UiShellApp {
         ui.group(|ui| {
             ui.label("Simulation Controls");
             ui.horizontal(|ui| {
-                let _ = ui.button("Start");
-                let _ = ui.button("Pause");
-                let _ = ui.button("Stop");
+                let _ = ui.add_enabled(false, egui::Button::new("Start"));
+                let _ = ui.add_enabled(false, egui::Button::new("Pause"));
+                let _ = ui.add_enabled(false, egui::Button::new("Stop"));
             });
-            ui.small("Scenario: (placeholder)");
+            ui.small("Placeholder: start/stop simulator in a later milestone. Output can share the same log above.");
         });
     }
 

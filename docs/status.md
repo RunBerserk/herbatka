@@ -41,12 +41,14 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - [x] UI app shell (window + panel layout)
  - [x] Broker connection state + basic fleet list (read-only)
  - [x] Selected vehicle telemetry panel
+ - [x] Fleet stats panel (online/stale/avg speed/topic lag)
+ - [x] Process output panel (stdout/stderr stream)
 ## In Progress
- - [ ] Fleet stats panel (online/stale/avg speed/topic lag)
+
 ## Next Up
 simple UI
 
- - [ ] Process output panel (stdout/stderr stream)
+
  - [ ] Process controls (start/stop broker + simulator) 
  - [ ] Basic error/reconnect handling
  - [ ] Minimal map pane (lat/lon points + vehicle selection)
