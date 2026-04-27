@@ -52,7 +52,7 @@ refactoring core.rs
 [x] Create src/broker/core/ modules (topic_paths.rs, checkpoint_io.rs, retention.rs, startup.rs, api.rs) and wire mod ... in core.rs only
 [x] Move topic path helpers into core/topic_paths.rs and verify compile/tests
 [x] Move checkpoint/index I/O helpers into core/checkpoint_io.rs and verify compile/tests (next isolated slice)
-[ ] Move retention logic (enforce_retention) into core/retention.rs and verify compile/tests
+[x] Move retention logic (enforce_retention) into core/retention.rs and verify compile/tests
 [ ] Move startup/discovery logic (discover_segments, load_topic_state, topic discovery helper) into core/startup.rs with no behavior change
 [ ] Move public broker API methods (create_topic, discover_topics_on_startup, produce, fetch, fetch_batch) into core/api.rs
 [ ] Keep shared types/constants in core.rs until all moves are complete (Broker, TopicState, SegmentMeta, BrokerError, constants)
