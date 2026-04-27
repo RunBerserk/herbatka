@@ -47,13 +47,23 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - [x] Basic error/reconnect handling
  - [x] Minimal map pane (lat/lon points + vehicle selection) 
  - [x] lat/lon movement
- ## In Progress
+## In Progress
+refactoring core.rs
+[x] Create src/broker/core/ modules (topic_paths.rs, checkpoint_io.rs, retention.rs, startup.rs, api.rs) and wire mod ... in core.rs only
+[x] Move topic path helpers into core/topic_paths.rs and verify compile/tests
+[ ] Move checkpoint/index I/O helpers into core/checkpoint_io.rs and verify compile/tests (next isolated slice)
+[ ] Move retention logic (enforce_retention) into core/retention.rs and verify compile/tests
+[ ] Move startup/discovery logic (discover_segments, load_topic_state, topic discovery helper) into core/startup.rs with no behavior change
+[ ] Move public broker API methods (create_topic, discover_topics_on_startup, produce, fetch, fetch_batch) into core/api.rs
+[ ] Keep shared types/constants in core.rs until all moves are complete (Broker, TopicState, SegmentMeta, BrokerError, constants)
+[ ] Trim core.rs to minimal wiring/shared definitions after all extractions
+[ ] Run validation after each step: cargo test --lib and cargo test --test broker_persistence
+[ ] Final pass: small cleanup-only naming/comments, no protocol/storage/behavior changes
 
-- Extend sparse-index startup skip for closed segments (keep tail replay path unchanged).
-- Collect startup replay telemetry (`skipped/replayed/fallback reasons`) and verify with integration tests.
  
 ## Next Up
-
+- Extend sparse-index startup skip for closed segments (keep tail replay path unchanged).
+- Collect startup replay telemetry (`skipped/replayed/fallback reasons`) and verify with integration tests.
 - Tail-segment optimization (optional): evaluate index-assisted seek/partial replay without weakening corruption safety.
 
 ## Later (TODO, not now)

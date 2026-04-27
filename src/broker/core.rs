@@ -3,6 +3,8 @@
 //! Maps topics to in-memory logs and exposes produce/fetch APIs.
 //! Coordinates topic-level runtime behavior; persistence format is handled in `log::persistence`.
 
+mod topic_paths;
+
 use std::collections::{BTreeSet, HashMap};
 use std::fs::{read_dir, remove_file};
 use std::io;
@@ -82,18 +84,6 @@ impl Broker {
 
 impl Broker {
     // ---- Paths and checkpoint I/O ----
-    fn topic_dir_path(&self, topic: &str) -> PathBuf {
-        self.config.data_dir.join(topic)
-    }
-
-    fn legacy_topic_log_path(&self, topic: &str) -> PathBuf {
-        self.config.data_dir.join(format!("{topic}.log"))
-    }
-
-    fn topic_checkpoint_path(&self, topic: &str) -> PathBuf {
-        self.topic_dir_path(topic).join(CHECKPOINT_FILE_NAME)
-    }
-
     fn load_topic_checkpoint(&self, topic: &str) -> Option<TopicCheckpoint> {
         let path = self.topic_checkpoint_path(topic);
         let raw = match std::fs::read_to_string(&path) {
@@ -190,7 +180,7 @@ impl Broker {
         let mut topics = BTreeSet::new();
         for entry in entries {
             let entry = entry.map_err(BrokerError::Io)?;
-            if let Some(name) = topic_name_from_entry(&entry.path()) {
+            if let Some(name) = topic_paths::topic_name_from_entry(&entry.path()) {
                 topics.insert(name.to_string());
             }
         }
@@ -529,16 +519,6 @@ impl Broker {
             changed = true;
         }
         Ok(changed)
-    }
-}
-
-fn topic_name_from_entry(path: &Path) -> Option<&str> {
-    if path.is_dir() {
-        path.file_name()?.to_str().filter(|name| !name.is_empty())
-    } else if path.extension().and_then(|ext| ext.to_str()) == Some("log") {
-        path.file_stem()?.to_str().filter(|name| !name.is_empty())
-    } else {
-        None
     }
 }
 
