@@ -4,14 +4,15 @@
 //! Coordinates topic-level runtime behavior; persistence format is handled in `log::persistence`.
 
 mod topic_paths;
+mod checkpoint_io;
 
 use std::collections::{BTreeSet, HashMap};
 use std::fs::{read_dir, remove_file};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::checkpoint;
-use super::checkpoint::{SegmentCheckpoint, TopicCheckpoint};
+use super::checkpoint::SegmentCheckpoint;
 use super::index;
 use super::index::SparseIndexEntry;
 use super::startup;
@@ -84,78 +85,6 @@ impl Broker {
 
 impl Broker {
     // ---- Paths and checkpoint I/O ----
-    fn load_topic_checkpoint(&self, topic: &str) -> Option<TopicCheckpoint> {
-        let path = self.topic_checkpoint_path(topic);
-        let raw = match std::fs::read_to_string(&path) {
-            Ok(raw) => raw,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
-            Err(e) => {
-                warn!(
-                    topic = %topic,
-                    checkpoint = %path.display(),
-                    error = %e,
-                    "failed to read checkpoint, falling back to full replay"
-                );
-                return None;
-            }
-        };
-
-        match checkpoint::parse_topic_checkpoint(&raw) {
-            Ok(checkpoint) => Some(checkpoint),
-            Err(e) => {
-                warn!(
-                    topic = %topic,
-                    checkpoint = %path.display(),
-                    error = %e,
-                    "invalid checkpoint, falling back to full replay"
-                );
-                None
-            }
-        }
-    }
-
-    fn load_segment_index(&self, topic: &str, segment_path: &Path) -> Option<Vec<SparseIndexEntry>> {
-        match index::read_sparse_index(segment_path) {
-            Ok(entries) => Some(entries),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-            Err(e) => {
-                warn!(
-                    topic = %topic,
-                    segment = %segment_path.display(),
-                    error = %e,
-                    "invalid segment index, falling back to full replay"
-                );
-                None
-            }
-        }
-    }
-
-    fn persist_topic_checkpoint(&self, topic: &str) -> io::Result<()> {
-        let path = self.topic_checkpoint_path(topic);
-        let Some(state) = self.topics.get(topic) else {
-            return Ok(());
-        };
-        if state.segments.is_empty() {
-            match std::fs::remove_file(&path) {
-                Ok(_) => {}
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e),
-            }
-            return Ok(());
-        }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let checkpoint = checkpoint::checkpoint_from_snapshots(
-            &state
-                .segments
-                .iter()
-                .map(|segment| (segment.base_offset, segment.message_count, segment.size_bytes))
-                .collect::<Vec<_>>(),
-        );
-        let encoded = checkpoint::encode_topic_checkpoint(&checkpoint);
-        std::fs::write(path, encoded)
-    }
 }
 
 impl Broker {
