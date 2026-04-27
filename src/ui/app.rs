@@ -27,6 +27,11 @@ const MAP_PADDING_RATIO: f64 = 0.08;
 const MAP_MARKER_RADIUS: f32 = 4.0;
 const MAP_SELECTED_MARKER_RADIUS: f32 = 7.0;
 const MAP_HIT_RADIUS: f32 = 10.0;
+const MAP_BG_COLOR: egui::Color32 = egui::Color32::from_rgb(14, 18, 26);
+const MAP_BORDER_COLOR: egui::Color32 = egui::Color32::from_rgb(56, 64, 82);
+const MAP_MARKER_COLOR: egui::Color32 = egui::Color32::from_rgb(108, 148, 230);
+const MAP_SELECTED_MARKER_COLOR: egui::Color32 = egui::Color32::from_rgb(98, 206, 130);
+const MAP_SELECTED_LABEL_COLOR: egui::Color32 = egui::Color32::from_rgb(242, 247, 255);
 
 #[derive(Debug, Clone, Copy)]
 struct MapViewport {
@@ -363,7 +368,7 @@ impl UiShellApp {
                 ui.separator();
                 ui.label("Env: local");
                 ui.separator();
-                ui.label("Theme: dark(dummy)");
+                ui.label("Theme: dark");
                 ui.separator();
                 ui.label("Status: shell mode");
             });
@@ -698,11 +703,11 @@ impl UiShellApp {
             let desired = egui::vec2(ui.available_width(), ui.available_height().max(240.0));
             let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click());
             let painter = ui.painter_at(rect);
-            painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(18, 22, 30));
+            painter.rect_filled(rect, 4.0, MAP_BG_COLOR);
             painter.rect_stroke(
                 rect,
                 4.0,
-                egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 78, 94)),
+                egui::Stroke::new(1.0, MAP_BORDER_COLOR),
                 egui::StrokeKind::Inside,
             );
 
@@ -735,9 +740,9 @@ impl UiShellApp {
                     MAP_MARKER_RADIUS
                 };
                 let fill = if is_selected {
-                    egui::Color32::from_rgb(80, 220, 120)
+                    MAP_SELECTED_MARKER_COLOR
                 } else {
-                    egui::Color32::from_rgb(120, 170, 255)
+                    MAP_MARKER_COLOR
                 };
                 painter.circle_filled(pos, radius, fill);
                 if is_selected {
@@ -747,7 +752,7 @@ impl UiShellApp {
                         egui::Align2::LEFT_BOTTOM,
                         vehicle_id,
                         egui::TextStyle::Body.resolve(ui.style()),
-                        egui::Color32::from_rgb(235, 242, 255),
+                        MAP_SELECTED_LABEL_COLOR,
                     );
                 }
                 if let Some(pointer_pos) = pointer {
@@ -770,6 +775,7 @@ impl UiShellApp {
 
 impl eframe::App for UiShellApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.set_visuals(egui::Visuals::dark());
         self.step_frame(ctx);
         self.show_top_bar(ctx);
         self.show_bottom_panels(ctx);

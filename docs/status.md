@@ -62,6 +62,7 @@ simple UI
 - Bevy UI integration
 - Real IoT client (Ox64)
 - scripts, skills folder
+- ui dark mode/bright mode
 
 ## Known Gaps / Risks
 
