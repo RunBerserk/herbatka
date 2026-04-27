@@ -22,6 +22,29 @@ const MAX_FETCH_PER_POLL: usize = 64;
 const RECONNECT_INITIAL_BACKOFF: Duration = Duration::from_millis(250);
 const RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(2);
 const BROKER_REACHABILITY_TIMEOUT: Duration = Duration::from_millis(35);
+const MAP_MIN_SPAN: f64 = 0.0002;
+const MAP_PADDING_RATIO: f64 = 0.08;
+const MAP_MARKER_RADIUS: f32 = 4.0;
+const MAP_SELECTED_MARKER_RADIUS: f32 = 7.0;
+const MAP_HIT_RADIUS: f32 = 10.0;
+
+#[derive(Debug, Clone, Copy)]
+struct MapViewport {
+    min_lat: f64,
+    max_lat: f64,
+    min_lon: f64,
+    max_lon: f64,
+}
+
+impl MapViewport {
+    fn lat_span(self) -> f64 {
+        (self.max_lat - self.min_lat).max(MAP_MIN_SPAN)
+    }
+
+    fn lon_span(self) -> f64 {
+        (self.max_lon - self.min_lon).max(MAP_MIN_SPAN)
+    }
+}
 
 pub fn run() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -50,6 +73,8 @@ struct UiShellApp {
     next_reconnect_at: Instant,
     reconnect_backoff: Duration,
     pause_reconnect: bool,
+    map_viewport: Option<MapViewport>,
+    follow_selected: bool,
 
     log_tx: mpsc::Sender<LogLine>,
     log_rx: mpsc::Receiver<LogLine>,
@@ -81,6 +106,8 @@ impl UiShellApp {
             next_reconnect_at: Instant::now(),
             reconnect_backoff: RECONNECT_INITIAL_BACKOFF,
             pause_reconnect: false,
+            map_viewport: None,
+            follow_selected: false,
             log_tx,
             log_rx,
             log_ring: LogRing::with_default_cap(),
@@ -93,6 +120,7 @@ impl UiShellApp {
         if let Some(id) = &self.selected_id {
             if !self.fleet.contains_key(id) {
                 self.selected_id = None;
+                self.follow_selected = false;
             }
         }
     }
@@ -211,9 +239,90 @@ impl UiShellApp {
         }
     }
 
+    fn fleet_bounds(&self) -> Option<MapViewport> {
+        let mut iter = self.fleet.values();
+        let first = iter.next()?;
+        let (mut min_lat, mut max_lat) = (first.lat, first.lat);
+        let (mut min_lon, mut max_lon) = (first.lon, first.lon);
+        for v in iter {
+            min_lat = min_lat.min(v.lat);
+            max_lat = max_lat.max(v.lat);
+            min_lon = min_lon.min(v.lon);
+            max_lon = max_lon.max(v.lon);
+        }
+        let lat_center = (min_lat + max_lat) * 0.5;
+        let lon_center = (min_lon + max_lon) * 0.5;
+        let lat_span = (max_lat - min_lat).max(MAP_MIN_SPAN) * (1.0 + MAP_PADDING_RATIO * 2.0);
+        let lon_span = (max_lon - min_lon).max(MAP_MIN_SPAN) * (1.0 + MAP_PADDING_RATIO * 2.0);
+        Some(MapViewport {
+            min_lat: lat_center - lat_span * 0.5,
+            max_lat: lat_center + lat_span * 0.5,
+            min_lon: lon_center - lon_span * 0.5,
+            max_lon: lon_center + lon_span * 0.5,
+        })
+    }
+
+    fn ensure_map_viewport(&mut self) {
+        if self.map_viewport.is_none() {
+            self.map_viewport = self.fleet_bounds();
+        }
+    }
+
+    fn follow_selected_if_enabled(&mut self) {
+        if !self.follow_selected {
+            return;
+        }
+        let Some(id) = &self.selected_id else {
+            return;
+        };
+        let Some(snap) = self.fleet.get(id) else {
+            return;
+        };
+        let span = self.map_viewport.unwrap_or(MapViewport {
+            min_lat: snap.lat - MAP_MIN_SPAN,
+            max_lat: snap.lat + MAP_MIN_SPAN,
+            min_lon: snap.lon - MAP_MIN_SPAN,
+            max_lon: snap.lon + MAP_MIN_SPAN,
+        });
+        let lat_half = span.lat_span() * 0.5;
+        let lon_half = span.lon_span() * 0.5;
+        self.map_viewport = Some(MapViewport {
+            min_lat: snap.lat - lat_half,
+            max_lat: snap.lat + lat_half,
+            min_lon: snap.lon - lon_half,
+            max_lon: snap.lon + lon_half,
+        });
+    }
+
+    fn project_to_screen(&self, view: MapViewport, rect: egui::Rect, lat: f64, lon: f64) -> egui::Pos2 {
+        let x_t = ((lon - view.min_lon) / view.lon_span()).clamp(0.0, 1.0) as f32;
+        let y_t = ((lat - view.min_lat) / view.lat_span()).clamp(0.0, 1.0) as f32;
+        let x = egui::lerp(rect.left()..=rect.right(), x_t);
+        let y = egui::lerp(rect.bottom()..=rect.top(), y_t);
+        egui::pos2(x, y)
+    }
+
+    fn zoom_viewport(&mut self, factor: f64) {
+        let Some(view) = self.map_viewport else {
+            return;
+        };
+        let center_lat = (view.min_lat + view.max_lat) * 0.5;
+        let center_lon = (view.min_lon + view.max_lon) * 0.5;
+        let lat_half = (view.lat_span() * factor * 0.5).max(MAP_MIN_SPAN * 0.5);
+        let lon_half = (view.lon_span() * factor * 0.5).max(MAP_MIN_SPAN * 0.5);
+        self.map_viewport = Some(MapViewport {
+            min_lat: center_lat - lat_half,
+            max_lat: center_lat + lat_half,
+            min_lon: center_lon - lon_half,
+            max_lon: center_lon + lon_half,
+        });
+    }
+
     fn step_frame(&mut self, ctx: &egui::Context) {
         self.poll_broker();
         self.reconcile_selection();
+        self.ensure_map_viewport();
+        self.follow_selected_if_enabled();
         if drain_into_ring(&self.log_rx, &mut self.log_ring, DRAIN_PER_FRAME_CAP) {
             ctx.request_repaint();
         }
@@ -550,18 +659,108 @@ impl UiShellApp {
         });
     }
 
-    fn show_map_pane(&self, ctx: &egui::Context) {
+    fn show_map_pane(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Map Pane");
             ui.separator();
-            ui.label("Vehicle map placeholder (lat/lon markers will be rendered here).");
-            ui.add_space(12.0);
             ui.horizontal(|ui| {
-                let _ = ui.button("Zoom +");
-                let _ = ui.button("Zoom -");
-                let _ = ui.button("Fit Fleet");
-                let _ = ui.button("Follow Vehicle");
+                if ui.button("Zoom +").clicked() {
+                    self.zoom_viewport(0.8);
+                    self.follow_selected = false;
+                }
+                if ui.button("Zoom -").clicked() {
+                    self.zoom_viewport(1.25);
+                    self.follow_selected = false;
+                }
+                if ui.button("Fit Fleet").clicked() {
+                    self.map_viewport = self.fleet_bounds();
+                    self.follow_selected = false;
+                }
+                let follow_label = if self.follow_selected {
+                    "Unfollow Vehicle"
+                } else {
+                    "Follow Vehicle"
+                };
+                if ui.button(follow_label).clicked() {
+                    if self.selected_id.is_some() {
+                        self.follow_selected = !self.follow_selected;
+                    }
+                }
             });
+            if self.selected_id.is_none() {
+                ui.small("Follow Vehicle requires a selected vehicle.");
+            }
+            ui.add_space(8.0);
+
+            let desired = egui::vec2(ui.available_width(), ui.available_height().max(240.0));
+            let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click());
+            let painter = ui.painter_at(rect);
+            painter.rect_filled(rect, 4.0, ui.visuals().extreme_bg_color);
+            painter.rect_stroke(
+                rect,
+                4.0,
+                egui::Stroke::new(1.0, ui.visuals().weak_text_color()),
+                egui::StrokeKind::Inside,
+            );
+
+            if self.fleet.is_empty() {
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "No telemetry yet",
+                    egui::TextStyle::Body.resolve(ui.style()),
+                    ui.visuals().text_color(),
+                );
+                return;
+            }
+
+            let Some(view) = self.map_viewport else {
+                return;
+            };
+
+            let mut nearest: Option<(String, f32)> = None;
+            let pointer = response.interact_pointer_pos();
+            for (vehicle_id, snap) in &self.fleet {
+                let pos = self.project_to_screen(view, rect, snap.lat, snap.lon);
+                let is_selected = self
+                    .selected_id
+                    .as_ref()
+                    .is_some_and(|selected| selected == vehicle_id);
+                let radius = if is_selected {
+                    MAP_SELECTED_MARKER_RADIUS
+                } else {
+                    MAP_MARKER_RADIUS
+                };
+                let fill = if is_selected {
+                    egui::Color32::from_rgb(80, 220, 120)
+                } else {
+                    egui::Color32::from_rgb(120, 170, 255)
+                };
+                painter.circle_filled(pos, radius, fill);
+                if is_selected {
+                    painter.circle_stroke(pos, radius + 2.0, egui::Stroke::new(1.5, egui::Color32::WHITE));
+                    painter.text(
+                        pos + egui::vec2(8.0, -8.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        vehicle_id,
+                        egui::TextStyle::Small.resolve(ui.style()),
+                        ui.visuals().text_color(),
+                    );
+                }
+                if let Some(pointer_pos) = pointer {
+                    let d = pointer_pos.distance(pos);
+                    if d <= MAP_HIT_RADIUS {
+                        let replace = nearest.as_ref().map(|(_, best)| d < *best).unwrap_or(true);
+                        if replace {
+                            nearest = Some((vehicle_id.clone(), d));
+                        }
+                    }
+                }
+            }
+
+            if response.clicked() && let Some((nearest_id, _)) = nearest {
+                self.selected_id = Some(nearest_id);
+            }
         });
     }
 }

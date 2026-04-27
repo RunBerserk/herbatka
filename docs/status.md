@@ -46,14 +46,14 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - [x] Process controls (start/stop broker + simulator) 
  - [x] Basic error/reconnect handling
  ## In Progress
-
+ - [ ] Minimal map pane (lat/lon points + vehicle selection)
  
 ## Next Up
 simple UI
 
 
 
- - [ ] Minimal map pane (lat/lon points + vehicle selection)
+
 ## Later (TODO, not now)
 
 - Protobuf encoding
