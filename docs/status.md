@@ -45,8 +45,12 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - [x] Process output panel (stdout/stderr stream) 
  - [x] Process controls (start/stop broker + simulator) 
  - [x] Basic error/reconnect handling
+ - [x] Minimal map pane (lat/lon points + vehicle selection) 
+ 
  ## In Progress
- - [ ] Minimal map pane (lat/lon points + vehicle selection)
+ - [] lat/lon movement
+debugging
+
  
 ## Next Up
 simple UI

@@ -2,6 +2,11 @@
 
 The simulator sends deterministic JSON telemetry events to the broker over TCP using the `PRODUCE` command.
 
+Coordinates are now dynamic: each vehicle updates `lat/lon` continuously over time.
+Movement is restricted by simulator walls (a bounded lat/lon box). Vehicles cannot
+pass walls; on collision they stay in-bounds and turn by roughly 90 degrees
+(with tiny deterministic jitter), so map points remain visible and keep moving.
+
 ## Quickstart
 
 1. Start broker:

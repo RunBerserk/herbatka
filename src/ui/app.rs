@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::net::{SocketAddr, TcpStream};
 use std::process::Child;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -21,7 +20,6 @@ const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const MAX_FETCH_PER_POLL: usize = 64;
 const RECONNECT_INITIAL_BACKOFF: Duration = Duration::from_millis(250);
 const RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(2);
-const BROKER_REACHABILITY_TIMEOUT: Duration = Duration::from_millis(35);
 const MAP_MIN_SPAN: f64 = 0.0002;
 const MAP_PADDING_RATIO: f64 = 0.08;
 const MAP_MARKER_RADIUS: f32 = 4.0;
@@ -91,6 +89,8 @@ struct UiShellApp {
     broker_child: Option<Child>,
     /// Simulator child when started from **Simulation Controls** (stdout/stderr pumped to `log_tx`).
     sim_child: Option<Child>,
+    /// Optional simulator seed from UI input (`None` keeps simulator default behavior).
+    sim_seed_input: String,
 }
 
 enum ConnectionState {
@@ -121,6 +121,56 @@ impl UiShellApp {
             log_ring: LogRing::with_default_cap(),
             broker_child: None,
             sim_child: None,
+            sim_seed_input: String::new(),
+        }
+    }
+
+    fn refresh_child_states(&mut self) {
+        Self::refresh_child_state(
+            &mut self.broker_child,
+            LogSource::Broker,
+            "broker process exited",
+            &self.log_tx,
+        );
+        Self::refresh_child_state(
+            &mut self.sim_child,
+            LogSource::Simulator,
+            "simulator process exited",
+            &self.log_tx,
+        );
+    }
+
+    fn refresh_child_state(
+        child: &mut Option<Child>,
+        source: LogSource,
+        label: &str,
+        log_tx: &mpsc::Sender<LogLine>,
+    ) {
+        let Some(proc) = child.as_mut() else {
+            return;
+        };
+        match proc.try_wait() {
+            Ok(Some(status)) => {
+                let _ = log_tx.send(LogLine {
+                    source,
+                    stream: if status.success() {
+                        LogStream::Stdout
+                    } else {
+                        LogStream::Stderr
+                    },
+                    text: format!("UI: {label} ({status})\n"),
+                });
+                *child = None;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                let _ = log_tx.send(LogLine {
+                    source,
+                    stream: LogStream::Stderr,
+                    text: format!("UI: failed to query child state: {e}\n"),
+                });
+                *child = None;
+            }
         }
     }
 
@@ -327,6 +377,7 @@ impl UiShellApp {
     }
 
     fn step_frame(&mut self, ctx: &egui::Context) {
+        self.refresh_child_states();
         self.poll_broker();
         self.reconcile_selection();
         self.ensure_map_viewport();
@@ -340,13 +391,6 @@ impl UiShellApp {
 
 /// Egui layout split out so `update` stays a short list of high-level steps.
 impl UiShellApp {
-    fn is_broker_addr_reachable(&self) -> bool {
-        let Ok(addr) = DEFAULT_BROKER_ADDR.parse::<SocketAddr>() else {
-            return false;
-        };
-        TcpStream::connect_timeout(&addr, BROKER_REACHABILITY_TIMEOUT).is_ok()
-    }
-
     fn stop_child(child: &mut Option<Child>) {
         if let Some(mut c) = child.take() {
             let _ = c.kill();
@@ -546,16 +590,6 @@ impl UiShellApp {
                     .add_enabled(!running, egui::Button::new("Start"))
                     .clicked()
                 {
-                    if self.is_broker_addr_reachable() {
-                        let _ = self.log_tx.send(LogLine {
-                            source: LogSource::Broker,
-                            stream: LogStream::Stderr,
-                            text: format!(
-                                "UI: broker start skipped: {DEFAULT_BROKER_ADDR} is already in use. Another broker (or app) is likely running.\n"
-                            ),
-                        });
-                        return;
-                    }
                     match broker_subprocess::spawn_broker(&self.log_tx) {
                         Ok(child) => {
                             self.broker_child = Some(child);
@@ -622,21 +656,50 @@ impl UiShellApp {
         ui.group(|ui| {
             ui.label("Simulation Controls");
             ui.horizontal(|ui| {
+                ui.label("Seed (optional)");
+                let seed_edit = egui::TextEdit::singleline(&mut self.sim_seed_input)
+                    .desired_width(120.0)
+                    .hint_text("e.g. 42");
+                let _ = ui.add_enabled(!running, seed_edit);
+            });
+            ui.horizontal(|ui| {
                 if ui
                     .add_enabled(!running, egui::Button::new("Start"))
                     .clicked()
                 {
+                    let seed = if self.sim_seed_input.trim().is_empty() {
+                        None
+                    } else {
+                        match self.sim_seed_input.trim().parse::<u64>() {
+                            Ok(parsed) => Some(parsed),
+                            Err(_) => {
+                                let _ = self.log_tx.send(LogLine {
+                                    source: LogSource::Simulator,
+                                    stream: LogStream::Stderr,
+                                    text: format!(
+                                        "UI: invalid seed `{}`; please enter a non-negative integer\n",
+                                        self.sim_seed_input.trim()
+                                    ),
+                                });
+                                return;
+                            }
+                        }
+                    };
                     match simulator_subprocess::spawn_simulator(
                         &self.log_tx,
                         DEFAULT_BROKER_ADDR,
                         DEFAULT_TOPIC,
+                        seed,
                     ) {
                         Ok(child) => {
                             self.sim_child = Some(child);
                             let _ = self.log_tx.send(LogLine {
                                 source: LogSource::Simulator,
                                 stream: LogStream::Stdout,
-                                text: "UI: simulator process started\n".to_string(),
+                                text: match seed {
+                                    Some(value) => format!("UI: simulator process started (seed={value})\n"),
+                                    None => "UI: simulator process started (seed=default)\n".to_string(),
+                                },
                             });
                         }
                         Err(e) => {

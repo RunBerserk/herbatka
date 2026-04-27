@@ -15,6 +15,13 @@ const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicl
 const DEFAULT_SEED: u64 = 0xC0FFEE1234;
 const CONNECT_RETRY_MAX_ATTEMPTS: u32 = 3;
 const PROGRESS_EVERY_SECS: u64 = 5;
+const EARTH_METERS_PER_DEGREE: f64 = 111_320.0;
+const WALL_MIN_LAT: f64 = 51.985;
+const WALL_MAX_LAT: f64 = 52.015;
+const WALL_MIN_LON: f64 = 20.975;
+const WALL_MAX_LON: f64 = 21.025;
+const BASE_CENTER_LAT: f64 = 52.0;
+const BASE_CENTER_LON: f64 = 21.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SimulatorArgs {
@@ -135,6 +142,20 @@ struct ScenarioDecision {
 #[derive(Debug, Clone, Copy)]
 struct DeterministicRng {
     state: u64,
+}
+
+#[derive(Debug, Clone)]
+struct VehicleMotionState {
+    lat: f64,
+    lon: f64,
+    heading_deg: f64,
+    last_update_at: Instant,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MovementSnapshot {
+    lat: f64,
+    lon: f64,
 }
 
 impl DeterministicRng {
@@ -269,6 +290,7 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     let seed = args.seed.unwrap_or(DEFAULT_SEED);
     let mut rng = DeterministicRng::new(seed);
     let run_start = Instant::now();
+    let mut motion = init_vehicle_motion(args.vehicles, &mut rng, run_start);
 
     let mut summary = Summary::default();
     let (mut stream, mut reader) = connect_with_retry(&args.addr, &mut summary)?;
@@ -296,7 +318,21 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
         }
 
         let vehicle_id = seq % args.vehicles;
-        let payload = build_event_payload(seq, vehicle_id, &mut rng);
+        let speed = speed_for_event(seq, &mut rng);
+        let tick_now = Instant::now();
+        let vehicle = &mut motion[vehicle_id as usize];
+        let dt = tick_now
+            .checked_duration_since(vehicle.last_update_at)
+            .unwrap_or(interval);
+        vehicle.last_update_at = tick_now;
+        let snapshot = advance_vehicle_with_walls(
+            vehicle,
+            speed,
+            dt,
+            vehicle_id,
+            &mut rng,
+        );
+        let payload = build_event_payload(seq, vehicle_id, speed, snapshot);
         let request = build_produce_line(&args.topic, &payload)?;
         stream
             .write_all(request.as_bytes())
@@ -351,6 +387,89 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     }
 
     Ok(summary)
+}
+
+fn speed_for_event(seq: u64, rng: &mut DeterministicRng) -> u64 {
+    let speed_base = 20u64 + (seq % 90);
+    let speed_jitter = rng.next_i32_inclusive(-2, 2);
+    (speed_base as i32 + speed_jitter).max(0) as u64
+}
+
+fn init_vehicle_motion(
+    vehicles: u64,
+    rng: &mut DeterministicRng,
+    start_at: Instant,
+) -> Vec<VehicleMotionState> {
+    (0..vehicles)
+        .map(|idx| {
+            let spread = (idx as f64 % 10.0) * 0.0009;
+            let lat_sign = if idx % 2 == 0 { 1.0 } else { -1.0 };
+            let lon_sign = if (idx / 2) % 2 == 0 { 1.0 } else { -1.0 };
+            let lat = BASE_CENTER_LAT + lat_sign * spread;
+            let lon = BASE_CENTER_LON + lon_sign * spread;
+            let heading_deg = (rng.next_u64() % 360) as f64;
+            VehicleMotionState {
+                lat,
+                lon,
+                heading_deg,
+                last_update_at: start_at,
+            }
+        })
+        .collect()
+}
+
+fn advance_vehicle_with_walls(
+    state: &mut VehicleMotionState,
+    speed_kmh: u64,
+    dt: Duration,
+    vehicle_id: u64,
+    rng: &mut DeterministicRng,
+) -> MovementSnapshot {
+    let dt_secs = dt.as_secs_f64().max(0.001);
+    let meters = (speed_kmh as f64 * 1000.0 / 3600.0) * dt_secs;
+    let heading_rad = state.heading_deg.to_radians();
+    let north_m = meters * heading_rad.cos();
+    let east_m = meters * heading_rad.sin();
+
+    let lat_delta = north_m / EARTH_METERS_PER_DEGREE;
+    let lon_scale = (state.lat.to_radians().cos()).abs().max(0.1);
+    let lon_delta = east_m / (EARTH_METERS_PER_DEGREE * lon_scale);
+
+    state.lat += lat_delta;
+    state.lon += lon_delta;
+
+    let mut hit_wall = false;
+    if state.lat < WALL_MIN_LAT {
+        state.lat = WALL_MIN_LAT;
+        hit_wall = true;
+    } else if state.lat > WALL_MAX_LAT {
+        state.lat = WALL_MAX_LAT;
+        hit_wall = true;
+    }
+    if state.lon < WALL_MIN_LON {
+        state.lon = WALL_MIN_LON;
+        hit_wall = true;
+    } else if state.lon > WALL_MAX_LON {
+        state.lon = WALL_MAX_LON;
+        hit_wall = true;
+    }
+
+    if hit_wall {
+        let turn_clockwise = (vehicle_id + rng.next_u64()).is_multiple_of(2);
+        state.heading_deg = if turn_clockwise {
+            state.heading_deg + 90.0
+        } else {
+            state.heading_deg - 90.0
+        };
+        state.heading_deg = state.heading_deg.rem_euclid(360.0);
+        let jitter = rng.next_i32_inclusive(-8, 8) as f64;
+        state.heading_deg = (state.heading_deg + jitter).rem_euclid(360.0);
+    }
+
+    MovementSnapshot {
+        lat: state.lat,
+        lon: state.lon,
+    }
 }
 
 fn open_connection_once(addr: &str) -> Result<(TcpStream, BufReader<TcpStream>), String> {
@@ -440,20 +559,13 @@ fn effective_interval(base_rate: u64, cadence: Cadence, profile_multiplier: f64)
     Duration::from_secs_f64(1.0 / effective_rate)
 }
 
-fn build_event_payload(seq: u64, vehicle_id: u64, rng: &mut DeterministicRng) -> String {
+fn build_event_payload(seq: u64, vehicle_id: u64, speed: u64, snapshot: MovementSnapshot) -> String {
     // Deterministic, human-readable event shape for repeatable MVP runs.
     // Fixed timestamp anchor plus 100 ms/event to simulate a stable event clock.
     let ts_ms = 1_700_000_000_000u64.saturating_add(seq.saturating_mul(100));
-    // Keep speeds in a simple moving-vehicle range: 20..109 km/h.
-    let speed_base = 20u64 + (seq % 90);
-    let speed_jitter = rng.next_i32_inclusive(-2, 2);
-    let speed = (speed_base as i32 + speed_jitter).max(0) as u64;
-    // Base coordinates around central Poland; per-vehicle / per-event drift is synthetic.
-    let lat = 52.0f64 + (vehicle_id as f64 * 0.0001f64);
-    let lon_jitter = rng.next_i32_inclusive(-1, 1) as f64 * 0.000001f64;
-    let lon = 21.0f64 + (seq as f64 * 0.00001f64) + lon_jitter;
     format!(
-        "{{\"vehicle_id\":\"veh-{vehicle_id}\",\"ts_ms\":{ts_ms},\"speed\":{speed},\"lat\":{lat:.6},\"lon\":{lon:.6}}}"
+        "{{\"vehicle_id\":\"veh-{vehicle_id}\",\"ts_ms\":{ts_ms},\"speed\":{speed},\"lat\":{:.6},\"lon\":{:.6}}}",
+        snapshot.lat, snapshot.lon
     )
 }
 
@@ -591,8 +703,15 @@ mod tests {
 
     #[test]
     fn event_payload_contains_expected_json_fields() {
-        let mut rng = DeterministicRng::new(123);
-        let payload = build_event_payload(7, 2, &mut rng);
+        let payload = build_event_payload(
+            7,
+            2,
+            64,
+            MovementSnapshot {
+                lat: 52.000123,
+                lon: 21.000456,
+            },
+        );
         assert!(payload.contains("\"vehicle_id\":\"veh-2\""));
         assert!(payload.contains("\"ts_ms\":"));
         assert!(payload.contains("\"speed\":"));
@@ -609,8 +728,15 @@ mod tests {
 
     #[test]
     fn produce_line_is_single_line_wire_message() {
-        let mut rng = DeterministicRng::new(42);
-        let payload = build_event_payload(1, 1, &mut rng);
+        let payload = build_event_payload(
+            1,
+            1,
+            40,
+            MovementSnapshot {
+                lat: 52.0,
+                lon: 21.0,
+            },
+        );
         let line = build_produce_line("events", &payload).expect("line should build");
         assert!(line.starts_with("PRODUCE events "));
         assert!(line.ends_with('\n'));
@@ -621,12 +747,58 @@ mod tests {
     fn same_seed_produces_same_payload_sequence() {
         let mut rng_a = DeterministicRng::new(77);
         let mut rng_b = DeterministicRng::new(77);
-        let a1 = build_event_payload(1, 1, &mut rng_a);
-        let a2 = build_event_payload(2, 1, &mut rng_a);
-        let b1 = build_event_payload(1, 1, &mut rng_b);
-        let b2 = build_event_payload(2, 1, &mut rng_b);
-        assert_eq!(a1, b1);
-        assert_eq!(a2, b2);
+        let started = Instant::now();
+        let mut a = init_vehicle_motion(1, &mut rng_a, started);
+        let mut b = init_vehicle_motion(1, &mut rng_b, started);
+        let dt = Duration::from_millis(100);
+        let mut seq_a = Vec::new();
+        let mut seq_b = Vec::new();
+        for seq in 0..8 {
+            let speed_a = speed_for_event(seq, &mut rng_a);
+            let speed_b = speed_for_event(seq, &mut rng_b);
+            let snap_a = advance_vehicle_with_walls(&mut a[0], speed_a, dt, 0, &mut rng_a);
+            let snap_b = advance_vehicle_with_walls(&mut b[0], speed_b, dt, 0, &mut rng_b);
+            seq_a.push((snap_a.lat, snap_a.lon));
+            seq_b.push((snap_b.lat, snap_b.lon));
+        }
+        assert_eq!(seq_a, seq_b);
+    }
+
+    #[test]
+    fn wall_collision_clamps_and_turns_vehicle() {
+        let mut rng = DeterministicRng::new(5);
+        let mut state = VehicleMotionState {
+            lat: WALL_MAX_LAT - 0.00001,
+            lon: BASE_CENTER_LON,
+            heading_deg: 0.0,
+            last_update_at: Instant::now(),
+        };
+        let snap = advance_vehicle_with_walls(&mut state, 110, Duration::from_secs(2), 1, &mut rng);
+        assert!(snap.lat <= WALL_MAX_LAT);
+        assert!(snap.lat >= WALL_MIN_LAT);
+        assert!(snap.lon <= WALL_MAX_LON);
+        assert!(snap.lon >= WALL_MIN_LON);
+        assert!(state.heading_deg != 0.0);
+    }
+
+    #[test]
+    fn movement_stays_within_walls_over_many_steps() {
+        let mut rng = DeterministicRng::new(11);
+        let mut states = init_vehicle_motion(3, &mut rng, Instant::now());
+        for seq in 0..400 {
+            for (id, state) in states.iter_mut().enumerate() {
+                let speed = speed_for_event(seq, &mut rng);
+                let snap = advance_vehicle_with_walls(
+                    state,
+                    speed,
+                    Duration::from_millis(120),
+                    id as u64,
+                    &mut rng,
+                );
+                assert!((WALL_MIN_LAT..=WALL_MAX_LAT).contains(&snap.lat));
+                assert!((WALL_MIN_LON..=WALL_MAX_LON).contains(&snap.lon));
+            }
+        }
     }
 
     #[test]

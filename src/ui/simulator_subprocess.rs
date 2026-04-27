@@ -21,9 +21,11 @@ pub fn spawn_simulator(
     log_tx: &Sender<LogLine>,
     addr: &str,
     topic: &str,
+    seed: Option<u64>,
 ) -> Result<Child, String> {
     let workdir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut child = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    command
         .arg("run")
         .arg("-q")
         .arg("--bin")
@@ -42,7 +44,11 @@ pub fn spawn_simulator(
         .arg("--scenario")
         .arg("steady")
         .arg("--load-profile")
-        .arg("constant")
+        .arg("constant");
+    if let Some(seed) = seed {
+        command.arg("--seed").arg(seed.to_string());
+    }
+    let mut child = command
         .current_dir(workdir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
