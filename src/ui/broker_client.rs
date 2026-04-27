@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
@@ -21,6 +21,28 @@ struct BrokerConnection {
 
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(35);
 const IO_TIMEOUT: Duration = Duration::from_millis(400);
+
+fn classify_connect_error(addr: &str, error: &io::Error) -> String {
+    match error.kind() {
+        io::ErrorKind::ConnectionRefused => format!("broker unavailable at {addr} (connection refused)"),
+        io::ErrorKind::TimedOut => format!("broker unavailable at {addr} (connect timeout)"),
+        io::ErrorKind::NotFound | io::ErrorKind::AddrNotAvailable => {
+            format!("broker address {addr} is invalid or unavailable")
+        }
+        _ => format!("connect {addr} failed: {error}"),
+    }
+}
+
+fn classify_io_error(phase: &str, error: &io::Error) -> String {
+    match error.kind() {
+        io::ErrorKind::TimedOut => format!("broker {phase} timeout"),
+        io::ErrorKind::ConnectionReset
+        | io::ErrorKind::ConnectionAborted
+        | io::ErrorKind::BrokenPipe
+        | io::ErrorKind::UnexpectedEof => format!("broker connection lost during {phase}"),
+        _ => format!("broker {phase} failed: {error}"),
+    }
+}
 
 impl BrokerClient {
     pub fn new(addr: impl Into<String>, topic: impl Into<String>) -> Self {
@@ -73,7 +95,7 @@ impl BrokerClient {
                 .next()
                 .ok_or_else(|| format!("resolve {} returned no addresses", self.addr))?;
             let stream = TcpStream::connect_timeout(&target, CONNECT_TIMEOUT)
-                .map_err(|e| format!("connect {} failed: {e}", self.addr))?;
+                .map_err(|e| classify_connect_error(&self.addr, &e))?;
             stream
                 .set_read_timeout(Some(IO_TIMEOUT))
                 .map_err(|e| format!("set read timeout failed: {e}"))?;
@@ -107,17 +129,17 @@ fn fetch_once_on_connection(
     connection
         .writer
         .write_all(request.as_bytes())
-        .map_err(|e| format!("fetch write failed: {e}"))?;
+        .map_err(|e| classify_io_error("write", &e))?;
     connection
         .writer
         .flush()
-        .map_err(|e| format!("fetch flush failed: {e}"))?;
+        .map_err(|e| classify_io_error("flush", &e))?;
 
     let mut line = String::new();
     connection
         .reader
         .read_line(&mut line)
-        .map_err(|e| format!("fetch read failed: {e}"))?;
+        .map_err(|e| classify_io_error("read", &e))?;
     if line.is_empty() {
         return Err("broker closed connection".to_string());
     }

@@ -49,6 +49,7 @@ struct UiShellApp {
     last_poll_at: Instant,
     next_reconnect_at: Instant,
     reconnect_backoff: Duration,
+    pause_reconnect: bool,
 
     log_tx: mpsc::Sender<LogLine>,
     log_rx: mpsc::Receiver<LogLine>,
@@ -60,6 +61,7 @@ struct UiShellApp {
 }
 
 enum ConnectionState {
+    NeverConnected,
     Connected { last_ok_at: Instant },
     Disconnected { reason: String },
 }
@@ -74,12 +76,11 @@ impl UiShellApp {
             selected_id: None,
             next_offset: 0,
             parse_errors: 0,
-            connection: ConnectionState::Disconnected {
-                reason: "not connected yet".to_string(),
-            },
+            connection: ConnectionState::NeverConnected,
             last_poll_at: Instant::now() - POLL_INTERVAL,
             next_reconnect_at: Instant::now(),
             reconnect_backoff: RECONNECT_INITIAL_BACKOFF,
+            pause_reconnect: false,
             log_tx,
             log_rx,
             log_ring: LogRing::with_default_cap(),
@@ -101,7 +102,18 @@ impl UiShellApp {
             return;
         }
         self.last_poll_at = Instant::now();
-        if matches!(self.connection, ConnectionState::Disconnected { .. })
+        if self.pause_reconnect
+            && matches!(
+                self.connection,
+                ConnectionState::Disconnected { .. } | ConnectionState::NeverConnected
+            )
+        {
+            return;
+        }
+        if matches!(
+            self.connection,
+            ConnectionState::Disconnected { .. } | ConnectionState::NeverConnected
+        )
             && Instant::now() < self.next_reconnect_at
         {
             return;
@@ -125,7 +137,9 @@ impl UiShellApp {
                 }
             }
             Err(reason) => {
-                self.connection = ConnectionState::Disconnected { reason };
+                self.connection = ConnectionState::Disconnected {
+                    reason: self.user_facing_reason(&reason),
+                };
                 self.next_reconnect_at = Instant::now() + self.reconnect_backoff;
                 self.reconnect_backoff =
                     (self.reconnect_backoff.saturating_mul(2)).min(RECONNECT_MAX_BACKOFF);
@@ -135,14 +149,65 @@ impl UiShellApp {
 
     fn connection_text(&self) -> String {
         match &self.connection {
+            ConnectionState::NeverConnected => {
+                if self.pause_reconnect {
+                    "Connection: idle (auto reconnect paused)".to_string()
+                } else {
+                    format!(
+                        "Connection: waiting for broker (next retry in {}ms)",
+                        self.ms_until_next_reconnect()
+                    )
+                }
+            }
             ConnectionState::Connected { last_ok_at } => format!(
                 "Connection: connected (offset={}, last_ok={}ms)",
                 self.next_offset,
                 last_ok_at.elapsed().as_millis()
             ),
             ConnectionState::Disconnected { reason } => {
-                format!("Connection: disconnected ({reason})")
+                if self.pause_reconnect {
+                    format!("Connection: disconnected ({reason}; auto reconnect paused)")
+                } else {
+                    format!(
+                        "Connection: disconnected ({reason}; retry in {}ms)",
+                        self.ms_until_next_reconnect()
+                    )
+                }
             }
+        }
+    }
+
+    fn ms_until_next_reconnect(&self) -> u128 {
+        self.next_reconnect_at
+            .checked_duration_since(Instant::now())
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    }
+
+    fn force_reconnect_now(&mut self) {
+        self.reconnect_backoff = RECONNECT_INITIAL_BACKOFF;
+        self.next_reconnect_at = Instant::now();
+        if !matches!(self.connection, ConnectionState::Connected { .. }) {
+            self.connection = ConnectionState::Disconnected {
+                reason: "manual reconnect requested".to_string(),
+            };
+        }
+    }
+
+    fn user_facing_reason(&self, raw_reason: &str) -> String {
+        if raw_reason.contains("broker unavailable") {
+            "broker is not running".to_string()
+        } else if raw_reason.contains("timeout") {
+            "broker did not respond in time".to_string()
+        } else if raw_reason.contains("connection lost")
+            || raw_reason.contains("closed connection")
+            || raw_reason.contains("connection reset")
+        {
+            "connection lost".to_string()
+        } else if raw_reason.contains("unknown topic") {
+            format!("topic `{DEFAULT_TOPIC}` is not available yet")
+        } else {
+            raw_reason.to_string()
         }
     }
 
@@ -377,6 +442,10 @@ impl UiShellApp {
                     match broker_subprocess::spawn_broker(&self.log_tx) {
                         Ok(child) => {
                             self.broker_child = Some(child);
+                            self.force_reconnect_now();
+                            self.connection = ConnectionState::Disconnected {
+                                reason: "broker started from UI; connecting...".to_string(),
+                            };
                             let _ = self.log_tx.send(LogLine {
                                 source: LogSource::Broker,
                                 stream: LogStream::Stdout,
@@ -394,13 +463,40 @@ impl UiShellApp {
                 }
                 if ui.add_enabled(running, egui::Button::new("Stop")).clicked() {
                     Self::stop_child(&mut self.broker_child);
+                    self.connection = ConnectionState::Disconnected {
+                        reason: "broker stopped from UI".to_string(),
+                    };
+                    self.reconnect_backoff = RECONNECT_INITIAL_BACKOFF;
+                    self.next_reconnect_at = Instant::now() + self.reconnect_backoff;
                     let _ = self.log_tx.send(LogLine {
                         source: LogSource::Broker,
                         stream: LogStream::Stdout,
                         text: "UI: broker process stopped\n".to_string(),
                     });
                 }
+                if ui.button("Reconnect now").clicked() {
+                    self.force_reconnect_now();
+                }
+                let pause_label = if self.pause_reconnect {
+                    "Resume auto-reconnect"
+                } else {
+                    "Pause auto-reconnect"
+                };
+                if ui.button(pause_label).clicked() {
+                    self.pause_reconnect = !self.pause_reconnect;
+                    if !self.pause_reconnect {
+                        self.force_reconnect_now();
+                    }
+                }
             });
+            if self.pause_reconnect {
+                ui.small("Auto reconnect is paused.");
+            } else {
+                ui.small(format!(
+                    "Auto reconnect: next attempt in {}ms",
+                    self.ms_until_next_reconnect()
+                ));
+            }
         });
     }
 
