@@ -57,7 +57,10 @@ pub fn run() -> eframe::Result<()> {
     eframe::run_native(
         "Herbatka Fleet Console (UI Shell)",
         options,
-        Box::new(|_cc| Ok(Box::new(UiShellApp::new()))),
+        Box::new(|cc| {
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            Ok(Box::new(UiShellApp::new()))
+        }),
     )
 }
 
@@ -695,11 +698,11 @@ impl UiShellApp {
             let desired = egui::vec2(ui.available_width(), ui.available_height().max(240.0));
             let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click());
             let painter = ui.painter_at(rect);
-            painter.rect_filled(rect, 4.0, ui.visuals().extreme_bg_color);
+            painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(18, 22, 30));
             painter.rect_stroke(
                 rect,
                 4.0,
-                egui::Stroke::new(1.0, ui.visuals().weak_text_color()),
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 78, 94)),
                 egui::StrokeKind::Inside,
             );
 
@@ -743,8 +746,8 @@ impl UiShellApp {
                         pos + egui::vec2(8.0, -8.0),
                         egui::Align2::LEFT_BOTTOM,
                         vehicle_id,
-                        egui::TextStyle::Small.resolve(ui.style()),
-                        ui.visuals().text_color(),
+                        egui::TextStyle::Body.resolve(ui.style()),
+                        egui::Color32::from_rgb(235, 242, 255),
                     );
                 }
                 if let Some(pointer_pos) = pointer {
