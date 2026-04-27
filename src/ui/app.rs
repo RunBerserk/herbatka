@@ -490,10 +490,15 @@ impl UiShellApp {
         self.map_viewport = None;
     }
 
+    fn reset_playback_data_only(&mut self) {
+        self.fleet.clear();
+    }
+
     fn replay_to_offset(&mut self, target_next_offset: u64) {
         let target = target_next_offset.max(self.replay_start_offset);
         self.next_offset = self.replay_start_offset;
-        self.reset_playback_view();
+        // Keep map viewport and selection stable for step-back UX parity with Step+.
+        self.reset_playback_data_only();
         while self.next_offset < target {
             let before = self.next_offset;
             self.fetch_from_broker(1);
