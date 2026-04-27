@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -18,6 +18,9 @@ struct BrokerConnection {
     writer: TcpStream,
     reader: BufReader<TcpStream>,
 }
+
+const CONNECT_TIMEOUT: Duration = Duration::from_millis(35);
+const IO_TIMEOUT: Duration = Duration::from_millis(400);
 
 impl BrokerClient {
     pub fn new(addr: impl Into<String>, topic: impl Into<String>) -> Self {
@@ -63,13 +66,19 @@ impl BrokerClient {
 
     fn ensure_connected(&mut self) -> Result<&mut BrokerConnection, String> {
         if self.connection.is_none() {
-            let stream = TcpStream::connect(&self.addr)
+            let target = self
+                .addr
+                .to_socket_addrs()
+                .map_err(|e| format!("resolve {} failed: {e}", self.addr))?
+                .next()
+                .ok_or_else(|| format!("resolve {} returned no addresses", self.addr))?;
+            let stream = TcpStream::connect_timeout(&target, CONNECT_TIMEOUT)
                 .map_err(|e| format!("connect {} failed: {e}", self.addr))?;
             stream
-                .set_read_timeout(Some(Duration::from_millis(400)))
+                .set_read_timeout(Some(IO_TIMEOUT))
                 .map_err(|e| format!("set read timeout failed: {e}"))?;
             stream
-                .set_write_timeout(Some(Duration::from_millis(400)))
+                .set_write_timeout(Some(IO_TIMEOUT))
                 .map_err(|e| format!("set write timeout failed: {e}"))?;
             let reader_stream = stream
                 .try_clone()

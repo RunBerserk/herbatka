@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use std::process::Child;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -19,6 +19,9 @@ const DEFAULT_BROKER_ADDR: &str = "127.0.0.1:7000";
 const DEFAULT_TOPIC: &str = "events";
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const MAX_FETCH_PER_POLL: usize = 64;
+const RECONNECT_INITIAL_BACKOFF: Duration = Duration::from_millis(250);
+const RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(2);
+const BROKER_REACHABILITY_TIMEOUT: Duration = Duration::from_millis(35);
 
 pub fn run() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -44,6 +47,8 @@ struct UiShellApp {
     parse_errors: u64,
     connection: ConnectionState,
     last_poll_at: Instant,
+    next_reconnect_at: Instant,
+    reconnect_backoff: Duration,
 
     log_tx: mpsc::Sender<LogLine>,
     log_rx: mpsc::Receiver<LogLine>,
@@ -73,6 +78,8 @@ impl UiShellApp {
                 reason: "not connected yet".to_string(),
             },
             last_poll_at: Instant::now() - POLL_INTERVAL,
+            next_reconnect_at: Instant::now(),
+            reconnect_backoff: RECONNECT_INITIAL_BACKOFF,
             log_tx,
             log_rx,
             log_ring: LogRing::with_default_cap(),
@@ -94,6 +101,11 @@ impl UiShellApp {
             return;
         }
         self.last_poll_at = Instant::now();
+        if matches!(self.connection, ConnectionState::Disconnected { .. })
+            && Instant::now() < self.next_reconnect_at
+        {
+            return;
+        }
 
         match self
             .broker_client
@@ -103,6 +115,8 @@ impl UiShellApp {
                 self.connection = ConnectionState::Connected {
                     last_ok_at: Instant::now(),
                 };
+                self.reconnect_backoff = RECONNECT_INITIAL_BACKOFF;
+                self.next_reconnect_at = Instant::now();
                 for (offset, payload) in messages {
                     if apply_payload(&mut self.fleet, offset, &payload).is_err() {
                         self.parse_errors = self.parse_errors.saturating_add(1);
@@ -112,6 +126,9 @@ impl UiShellApp {
             }
             Err(reason) => {
                 self.connection = ConnectionState::Disconnected { reason };
+                self.next_reconnect_at = Instant::now() + self.reconnect_backoff;
+                self.reconnect_backoff =
+                    (self.reconnect_backoff.saturating_mul(2)).min(RECONNECT_MAX_BACKOFF);
             }
         }
     }
@@ -142,7 +159,10 @@ impl UiShellApp {
 /// Egui layout split out so `update` stays a short list of high-level steps.
 impl UiShellApp {
     fn is_broker_addr_reachable(&self) -> bool {
-        TcpStream::connect(DEFAULT_BROKER_ADDR).is_ok()
+        let Ok(addr) = DEFAULT_BROKER_ADDR.parse::<SocketAddr>() else {
+            return false;
+        };
+        TcpStream::connect_timeout(&addr, BROKER_REACHABILITY_TIMEOUT).is_ok()
     }
 
     fn stop_child(child: &mut Option<Child>) {
