@@ -7,8 +7,6 @@ use std::sync::mpsc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogSource {
     Broker,
-    /// Reserved for the simulator process when wired in a later milestone.
-    #[allow(dead_code)]
     Simulator,
 }
 

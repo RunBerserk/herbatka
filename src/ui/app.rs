@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::net::TcpStream;
 use std::process::Child;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -8,9 +9,10 @@ use eframe::egui;
 use super::broker_client::BrokerClient;
 use super::broker_subprocess;
 use super::fleet_stats::compute_fleet_stats;
+use super::simulator_subprocess;
 use super::model::{VehicleSnapshot, apply_payload};
 use super::process_log::{
-    LogLine, LogRing, LogSource, LogStream, drain_into_ring, DRAIN_PER_FRAME_CAP,
+    DRAIN_PER_FRAME_CAP, LogLine, LogRing, LogSource, LogStream, drain_into_ring,
 };
 
 const DEFAULT_BROKER_ADDR: &str = "127.0.0.1:7000";
@@ -48,6 +50,8 @@ struct UiShellApp {
     log_ring: LogRing,
     /// Broker child when started from **Broker Controls** (stdout/stderr pumped to `log_tx`).
     broker_child: Option<Child>,
+    /// Simulator child when started from **Simulation Controls** (stdout/stderr pumped to `log_tx`).
+    sim_child: Option<Child>,
 }
 
 enum ConnectionState {
@@ -73,6 +77,7 @@ impl UiShellApp {
             log_rx,
             log_ring: LogRing::with_default_cap(),
             broker_child: None,
+            sim_child: None,
         }
     }
 
@@ -136,6 +141,22 @@ impl UiShellApp {
 
 /// Egui layout split out so `update` stays a short list of high-level steps.
 impl UiShellApp {
+    fn is_broker_addr_reachable(&self) -> bool {
+        TcpStream::connect(DEFAULT_BROKER_ADDR).is_ok()
+    }
+
+    fn stop_child(child: &mut Option<Child>) {
+        if let Some(mut c) = child.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+
+    fn shutdown_children(&mut self) {
+        Self::stop_child(&mut self.sim_child);
+        Self::stop_child(&mut self.broker_child);
+    }
+
     fn show_top_bar(&self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -145,7 +166,7 @@ impl UiShellApp {
                 ui.separator();
                 ui.label("Env: local");
                 ui.separator();
-                ui.label("Theme: dark");
+                ui.label("Theme: dark(dummy)");
                 ui.separator();
                 ui.label("Status: shell mode");
             });
@@ -175,19 +196,21 @@ impl UiShellApp {
             .resizable(true)
             .default_width(330.0)
             .show(ctx, |ui| {
-                ui.heading("Telemetry and Controls");
-                ui.separator();
-                self.render_fleet_summary(ui);
-                ui.add_space(8.0);
-                self.render_selected_vehicle_panel(ui);
-                ui.add_space(8.0);
-                self.render_fleet_list(ui);
-                ui.add_space(8.0);
-                self.render_fleet_stats(ui);
-                ui.add_space(8.0);
-                self.render_broker_controls(ui);
-                ui.add_space(8.0);
-                self.render_sim_controls_placeholder(ui);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.heading("Telemetry and Controls");
+                    ui.separator();
+                    self.render_fleet_summary(ui);
+                    ui.add_space(8.0);
+                    self.render_selected_vehicle_panel(ui);
+                    ui.add_space(8.0);
+                    self.render_fleet_list(ui);
+                    ui.add_space(8.0);
+                    self.render_fleet_stats(ui);
+                    ui.add_space(8.0);
+                    self.render_broker_controls(ui);
+                    ui.add_space(8.0);
+                    self.render_sim_controls(ui);
+                });
             });
     }
 
@@ -206,10 +229,7 @@ impl UiShellApp {
             ui.horizontal(|ui| {
                 ui.heading("Selected vehicle");
                 if ui
-                    .add_enabled(
-                        self.selected_id.is_some(),
-                        egui::Button::new("Clear"),
-                    )
+                    .add_enabled(self.selected_id.is_some(), egui::Button::new("Clear"))
                     .clicked()
                 {
                     self.selected_id = None;
@@ -243,10 +263,8 @@ impl UiShellApp {
                 .max_height(220.0)
                 .show(ui, |ui| {
                     for (vehicle_id, snapshot) in &self.fleet {
-                        let is_selected = self
-                            .selected_id
-                            .as_ref()
-                            .is_some_and(|s| s == vehicle_id);
+                        let is_selected =
+                            self.selected_id.as_ref().is_some_and(|s| s == vehicle_id);
                         let summary = format!(
                             "{}  lat={:.5} lon={:.5}  speed={}  off={}",
                             vehicle_id,
@@ -270,16 +288,16 @@ impl UiShellApp {
         let stats = compute_fleet_stats(&self.fleet, self.next_offset);
         ui.group(|ui| {
             ui.heading("Fleet Stats");
-            ui.label(format!("online: {}  /  stale: {}", stats.online, stats.stale));
+            ui.label(format!(
+                "online: {}  /  stale: {}",
+                stats.online, stats.stale
+            ));
             if let Some(avg) = stats.avg_speed_kmh {
                 ui.label(format!("avg speed: {:.1} km/h", avg));
             } else {
                 ui.label("avg speed: n/a");
             }
-            ui.label(format!(
-                "read next offset: {}",
-                stats.read_next_offset
-            ));
+            ui.label(format!("read next offset: {}", stats.read_next_offset));
             if let Some(o) = stats.newest_buffered_offset {
                 ui.label(format!("newest buffered offset: {o}"));
             } else {
@@ -306,17 +324,13 @@ impl UiShellApp {
         ui.separator();
         let text = self.log_ring.as_single_text();
         if text.is_empty() {
-            ui.label("No process output yet. Use Broker Controls: Start, or an external process.");
+            ui.label("No process output yet. Use Broker / Simulation Controls: Start, or an external process.");
         } else {
             egui::ScrollArea::vertical()
                 .id_salt("process_output_log")
                 .max_height(160.0)
                 .show(ui, |ui| {
-                    ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(&text).monospace()
-                        )
-                    );
+                    ui.add(egui::Label::new(egui::RichText::new(&text).monospace()));
                 });
         }
     }
@@ -330,6 +344,16 @@ impl UiShellApp {
                     .add_enabled(!running, egui::Button::new("Start"))
                     .clicked()
                 {
+                    if self.is_broker_addr_reachable() {
+                        let _ = self.log_tx.send(LogLine {
+                            source: LogSource::Broker,
+                            stream: LogStream::Stderr,
+                            text: format!(
+                                "UI: broker start skipped: {DEFAULT_BROKER_ADDR} is already in use. Another broker (or app) is likely running.\n"
+                            ),
+                        });
+                        return;
+                    }
                     match broker_subprocess::spawn_broker(&self.log_tx) {
                         Ok(child) => {
                             self.broker_child = Some(child);
@@ -348,14 +372,8 @@ impl UiShellApp {
                         }
                     }
                 }
-                if ui
-                    .add_enabled(running, egui::Button::new("Stop"))
-                    .clicked()
-                {
-                    if let Some(mut c) = self.broker_child.take() {
-                        let _ = c.kill();
-                        let _ = c.wait();
-                    }
+                if ui.add_enabled(running, egui::Button::new("Stop")).clicked() {
+                    Self::stop_child(&mut self.broker_child);
                     let _ = self.log_tx.send(LogLine {
                         source: LogSource::Broker,
                         stream: LogStream::Stdout,
@@ -366,15 +384,53 @@ impl UiShellApp {
         });
     }
 
-    fn render_sim_controls_placeholder(&self, ui: &mut egui::Ui) {
+    fn render_sim_controls(&mut self, ui: &mut egui::Ui) {
+        let running = self.sim_child.is_some();
         ui.group(|ui| {
             ui.label("Simulation Controls");
             ui.horizontal(|ui| {
-                let _ = ui.add_enabled(false, egui::Button::new("Start"));
-                let _ = ui.add_enabled(false, egui::Button::new("Pause"));
-                let _ = ui.add_enabled(false, egui::Button::new("Stop"));
+                if ui
+                    .add_enabled(!running, egui::Button::new("Start"))
+                    .clicked()
+                {
+                    match simulator_subprocess::spawn_simulator(
+                        &self.log_tx,
+                        DEFAULT_BROKER_ADDR,
+                        DEFAULT_TOPIC,
+                    ) {
+                        Ok(child) => {
+                            self.sim_child = Some(child);
+                            let _ = self.log_tx.send(LogLine {
+                                source: LogSource::Simulator,
+                                stream: LogStream::Stdout,
+                                text: "UI: simulator process started\n".to_string(),
+                            });
+                        }
+                        Err(e) => {
+                            let _ = self.log_tx.send(LogLine {
+                                source: LogSource::Simulator,
+                                stream: LogStream::Stderr,
+                                text: format!("UI: {e}\n"),
+                            });
+                        }
+                    }
+                }
+                let _ = ui
+                    .add_enabled(false, egui::Button::new("Pause"))
+                    .on_hover_text("Not supported: simulator has no pause/resume API yet.");
+                if ui
+                    .add_enabled(running, egui::Button::new("Stop"))
+                    .clicked()
+                {
+                    Self::stop_child(&mut self.sim_child);
+                    let _ = self.log_tx.send(LogLine {
+                        source: LogSource::Simulator,
+                        stream: LogStream::Stdout,
+                        text: "UI: simulator process stopped\n".to_string(),
+                    });
+                }
             });
-            ui.small("Placeholder: start/stop simulator in a later milestone. Output can share the same log above.");
+            ui.small("Pause: needs simulator or protocol support. Stop ends the run (sends SIGKILL to child).");
         });
     }
 
@@ -401,5 +457,11 @@ impl eframe::App for UiShellApp {
         self.show_bottom_panels(ctx);
         self.show_right_sidebar(ctx);
         self.show_map_pane(ctx);
+    }
+}
+
+impl Drop for UiShellApp {
+    fn drop(&mut self) {
+        self.shutdown_children();
     }
 }

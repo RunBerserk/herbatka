@@ -1,11 +1,11 @@
 //! Spawn `herbatka` as a child and pump stdout/stderr into a [`LogLine`](super::process_log::LogLine) channel.
 
-use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::thread;
 
+use super::child_output::pump_read;
 use super::process_log::{LogLine, LogSource, LogStream};
 
 /// Runs `cargo run -q --bin herbatka` with working directory = crate / repo root.  
@@ -37,40 +37,4 @@ pub fn spawn_broker(log_tx: &Sender<LogLine>) -> Result<Child, String> {
     thread::spawn(move || pump_read(LogSource::Broker, LogStream::Stderr, err, tx2));
 
     Ok(child)
-}
-
-fn pump_read(
-    source: LogSource,
-    stream: LogStream,
-    r: impl Read + Send + 'static,
-    tx: Sender<LogLine>,
-) {
-    let mut reader = BufReader::new(r);
-    let mut line = String::new();
-    loop {
-        line.clear();
-        match reader.read_line(&mut line) {
-            Ok(0) => break,
-            Ok(_) => {
-                if tx
-                    .send(LogLine {
-                        source,
-                        stream,
-                        text: line.clone(),
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-            Err(e) => {
-                let _ = tx.send(LogLine {
-                    source,
-                    stream,
-                    text: format!("<read error: {e}>\n"),
-                });
-                break;
-            }
-        }
-    }
 }
