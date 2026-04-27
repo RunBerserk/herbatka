@@ -81,6 +81,8 @@ struct UiShellApp {
     pause_reconnect: bool,
     map_viewport: Option<MapViewport>,
     follow_selected: bool,
+    playback_paused: bool,
+    replay_start_offset: u64,
 
     log_tx: mpsc::Sender<LogLine>,
     log_rx: mpsc::Receiver<LogLine>,
@@ -116,6 +118,8 @@ impl UiShellApp {
             pause_reconnect: false,
             map_viewport: None,
             follow_selected: false,
+            playback_paused: false,
+            replay_start_offset: 0,
             log_tx,
             log_rx,
             log_ring: LogRing::with_default_cap(),
@@ -184,10 +188,17 @@ impl UiShellApp {
     }
 
     fn poll_broker(&mut self) {
+        if self.playback_paused {
+            return;
+        }
         if self.last_poll_at.elapsed() < POLL_INTERVAL {
             return;
         }
         self.last_poll_at = Instant::now();
+        self.fetch_from_broker(MAX_FETCH_PER_POLL);
+    }
+
+    fn fetch_from_broker(&mut self, max_fetch: usize) {
         if self.pause_reconnect
             && matches!(
                 self.connection,
@@ -207,7 +218,7 @@ impl UiShellApp {
 
         match self
             .broker_client
-            .poll_from_offset(self.next_offset, MAX_FETCH_PER_POLL)
+            .poll_from_offset(self.next_offset, max_fetch)
         {
             Ok(messages) => {
                 self.connection = ConnectionState::Connected {
@@ -451,6 +462,8 @@ impl UiShellApp {
                     ui.add_space(8.0);
                     self.render_fleet_list(ui);
                     ui.add_space(8.0);
+                    self.render_playback_controls(ui);
+                    ui.add_space(8.0);
                     self.render_fleet_stats(ui);
                     ui.add_space(8.0);
                     self.render_broker_controls(ui);
@@ -464,8 +477,70 @@ impl UiShellApp {
         ui.group(|ui| {
             ui.label(format!("Fleet (read-only): {} vehicles", self.fleet.len()));
             ui.small(format!(
-                "topic={}, next_offset={}, parse_errors={}",
-                DEFAULT_TOPIC, self.next_offset, self.parse_errors
+                "topic={}, next_offset={}, replay_start_offset={}, parse_errors={}",
+                DEFAULT_TOPIC, self.next_offset, self.replay_start_offset, self.parse_errors
+            ));
+        });
+    }
+
+    fn reset_playback_view(&mut self) {
+        self.fleet.clear();
+        self.selected_id = None;
+        self.follow_selected = false;
+        self.map_viewport = None;
+    }
+
+    fn replay_to_offset(&mut self, target_next_offset: u64) {
+        let target = target_next_offset.max(self.replay_start_offset);
+        self.next_offset = self.replay_start_offset;
+        self.reset_playback_view();
+        while self.next_offset < target {
+            let before = self.next_offset;
+            self.fetch_from_broker(1);
+            if self.next_offset == before {
+                break;
+            }
+        }
+    }
+
+    fn render_playback_controls(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label("Playback Controls");
+            ui.horizontal(|ui| {
+                let play_pause_label = if self.playback_paused { "Play" } else { "Pause" };
+                if ui.button(play_pause_label).clicked() {
+                    self.playback_paused = !self.playback_paused;
+                    self.last_poll_at = Instant::now() - POLL_INTERVAL;
+                }
+                if ui
+                    .add_enabled(
+                        self.playback_paused && self.next_offset > self.replay_start_offset,
+                        egui::Button::new("Step -"),
+                    )
+                    .clicked()
+                {
+                    let target = self.next_offset.saturating_sub(1);
+                    self.replay_to_offset(target);
+                }
+                if ui
+                    .add_enabled(self.playback_paused, egui::Button::new("Step +"))
+                    .clicked()
+                {
+                    self.fetch_from_broker(1);
+                }
+                if ui.button("Replay from start").clicked() {
+                    self.next_offset = self.replay_start_offset;
+                    self.reset_playback_view();
+                    self.last_poll_at = Instant::now() - POLL_INTERVAL;
+                }
+            });
+            let status = if self.playback_paused {
+                "paused"
+            } else {
+                "playing"
+            };
+            ui.small(format!(
+                "Playback: {status}. Use Step - / Step + for single-event navigation."
             ));
         });
     }
@@ -693,6 +768,9 @@ impl UiShellApp {
                     ) {
                         Ok(child) => {
                             self.sim_child = Some(child);
+                            self.replay_start_offset = self.next_offset;
+                            self.playback_paused = false;
+                            self.last_poll_at = Instant::now() - POLL_INTERVAL;
                             let _ = self.log_tx.send(LogLine {
                                 source: LogSource::Simulator,
                                 stream: LogStream::Stdout,
