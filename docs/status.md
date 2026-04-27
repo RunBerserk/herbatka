@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-20
+Last updated: 2026-04-27
 
 ## Current Phase
 
@@ -36,8 +36,8 @@ Persistence and recovery baseline -> moving toward external access (TCP)
   - [x] Reliability/observability
   - [x] Load profiles
   - [x] Docs + test harness
-- Extend startup replay performance improvements beyond checkpoint manifest (reduce decode work further; evaluate sparse index).
-[ ] MVP UI client (`egui`, map-first)
+- Startup sparse index foundation is in place (sidecar write/read + compatibility checks + safe fallback paths).
+[x] MVP UI client (`egui`, map-first)
  - [x] UI app shell (window + panel layout)
  - [x] Broker connection state + basic fleet list (read-only)
  - [x] Selected vehicle telemetry panel
@@ -46,17 +46,15 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - [x] Process controls (start/stop broker + simulator) 
  - [x] Basic error/reconnect handling
  - [x] Minimal map pane (lat/lon points + vehicle selection) 
- 
+ - [x] lat/lon movement
  ## In Progress
- - [] lat/lon movement
-debugging
 
+- Extend sparse-index startup skip for closed segments (keep tail replay path unchanged).
+- Collect startup replay telemetry (`skipped/replayed/fallback reasons`) and verify with integration tests.
  
 ## Next Up
-simple UI
 
-
-
+- Tail-segment optimization (optional): evaluate index-assisted seek/partial replay without weakening corruption safety.
 
 ## Later (TODO, not now)
 
@@ -71,13 +69,22 @@ simple UI
 ## Known Gaps / Risks
 
 
-- Startup replay still decodes heavily at scale; checkpoint manifest helps, but sparse indexing or deeper skip-paths are still needed.
+- Startup replay still decodes tail segment and fallback segments; sparse index helps for closed segments but deeper skip-paths are still needed at larger scales.
 - Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients.
 - No CI guardrails yet (`fmt`/`clippy`/`test` in pipeline), increasing regression risk.
 - TCP text protocol is MVP-only; no schema/framing guarantees for long-term interoperability.
 
 ## Notes
 
-- Tests passing as of 2026-04-20 (`cargo test`)
+- Startup replay benchmark (2026-04-27, `scripts/startup_replay_bench.ps1 -Iterations 3`):
+  - metadata-skip-startup-path avg: `0.327s`
+  - fallback-decode-startup-path avg: `0.333s`
+- A/B benchmark (2026-04-27, `scripts/startup_ab_speed.ps1 -Iterations 3`, dataset: `80,000` messages, payload `128B`, `segment_max_bytes=4096`):
+  - baseline (before sparse-index startup changes) full test avg: `25.467s`
+  - current (with sparse-index startup changes) full test avg: `25.761s` (`+0.294s`, `+1.15%`)
+  - restart phase markers (`restart_elapsed_ms`) improved on average: baseline `~215ms` -> current `~203ms` (`-12ms`, `~5.6%`)
+  - interpretation: test runtime is dominated by data generation/write cost; restart-only marker is the better signal for startup benefit.
+- Benchmark history: `docs/benchmarks.md`
+- Tests passing as of 2026-04-27 (`cargo test --test broker_persistence`)
 - Focus: keep core minimal, avoid premature features
 - Philosophy: build only what is needed now

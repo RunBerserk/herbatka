@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions, create_dir_all, read_dir};
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 fn message(payload: &[u8]) -> Message {
     Message {
@@ -396,6 +396,63 @@ fn sparse_index_sidecar_is_created() {
 }
 
 #[test]
+fn startup_skips_all_eligible_closed_segments() {
+    let dir = temp_data_dir("herbatka_sparse_index_skip_closed");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'h'; 64];
+    for _ in 0..5 {
+        broker.produce("events", message(&big)).unwrap();
+    }
+
+    let mut restarted = Broker::with_config(cfg);
+    restarted.discover_topics_on_startup().unwrap();
+    assert!(restarted.fetch("events", 0).unwrap().is_none());
+    assert!(restarted.fetch("events", 1).unwrap().is_none());
+    assert!(restarted.fetch("events", 2).unwrap().is_none());
+    assert!(restarted.fetch("events", 3).unwrap().is_none());
+    assert!(restarted.fetch("events", 4).unwrap().is_some());
+}
+
+#[test]
+fn startup_mixed_skip_and_fallback_keeps_replayed_offsets_visible() {
+    let dir = temp_data_dir("herbatka_sparse_index_mixed");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'i'; 64];
+    for _ in 0..4 {
+        broker.produce("events", message(&big)).unwrap();
+    }
+
+    let mut index_files = topic_index_files(&dir, "events");
+    index_files.sort();
+    let second_segment_index = index_files
+        .get(1)
+        .expect("second segment index should exist")
+        .clone();
+    std::fs::write(second_segment_index, "corrupt-index").expect("write corrupt index");
+
+    let mut restarted = Broker::with_config(cfg);
+    restarted.discover_topics_on_startup().unwrap();
+    assert!(restarted.fetch("events", 0).unwrap().is_none());
+    assert!(restarted.fetch("events", 1).unwrap().is_some());
+    assert!(restarted.fetch("events", 2).unwrap().is_some());
+    assert!(restarted.fetch("events", 3).unwrap().is_some());
+}
+
+#[test]
 fn corrupt_or_missing_sparse_index_falls_back_safely() {
     let dir = temp_data_dir("herbatka_sparse_index_fallback");
     let cfg = BrokerConfig {
@@ -458,4 +515,39 @@ fn retention_removes_index_sidecars_with_segments() {
         index_files.len(),
         "retained segment files should have matching index sidecars"
     );
+}
+
+#[test]
+fn startup_large_dataset_restart_profile() {
+    let dir = temp_data_dir("herbatka_startup_large_profile");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 4 * 1024,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+
+    let message_count = 80_000u64;
+    let payload = vec![b'p'; 128];
+    let write_start = Instant::now();
+    for _ in 0..message_count {
+        broker.produce("events", message(&payload)).unwrap();
+    }
+    let write_elapsed = write_start.elapsed();
+    eprintln!(
+        "profile_marker: write_elapsed_ms={} messages={}",
+        write_elapsed.as_millis(),
+        message_count
+    );
+
+    let restart_start = Instant::now();
+    let mut restarted = Broker::with_config(cfg);
+    restarted.discover_topics_on_startup().unwrap();
+    let restart_elapsed = restart_start.elapsed();
+    eprintln!("profile_marker: restart_elapsed_ms={}", restart_elapsed.as_millis());
+
+    assert!(restarted.fetch("events", message_count - 1).unwrap().is_some());
+    assert!(restarted.fetch("events", message_count).unwrap().is_none());
 }

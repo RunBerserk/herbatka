@@ -16,7 +16,7 @@ use super::startup;
 use crate::config::BrokerConfig;
 use crate::log::message::Message;
 use crate::log::store::{Log, append_to_segment_file, estimate_record_size};
-use tracing::warn;
+use tracing::{info, warn};
 
 const CHECKPOINT_FILE_NAME: &str = ".checkpoint";
 const CHECKPOINT_FLUSH_EVERY_APPENDS: usize = 128;
@@ -320,6 +320,10 @@ impl Broker {
 
         let mut log = Log::with_base_offset(segments[0].base_offset);
         let segments_len = segments.len();
+        let mut can_metadata_skip = true;
+        let mut startup_skipped_segments = 0u64;
+        let mut startup_replayed_segments = 0u64;
+        let mut startup_fallback_reasons: HashMap<&'static str, u64> = HashMap::new();
         for (idx, segment) in segments.iter_mut().enumerate() {
             if log.next_offset() != segment.base_offset {
                 return Err(BrokerError::Io(io::Error::new(
@@ -328,27 +332,58 @@ impl Broker {
                 )));
             }
             let is_tail_segment = idx == segments_len - 1;
-            let trusted_closed = !is_tail_segment
-                && log.is_empty()
-                && checkpoint_by_base
-                    .get(&segment.base_offset)
-                    .map(|entry| {
-                        if entry.valid_len != segment.size_bytes || entry.message_count == 0 {
-                            return false;
+            let trusted_closed = if !can_metadata_skip {
+                *startup_fallback_reasons
+                    .entry("post_replay_skip_disabled")
+                    .or_insert(0) += 1;
+                false
+            } else if is_tail_segment {
+                *startup_fallback_reasons.entry("tail_segment").or_insert(0) += 1;
+                false
+            } else {
+                match checkpoint_by_base.get(&segment.base_offset) {
+                    None => {
+                        *startup_fallback_reasons.entry("missing_checkpoint").or_insert(0) += 1;
+                        false
+                    }
+                    Some(entry) if entry.valid_len != segment.size_bytes => {
+                        *startup_fallback_reasons
+                            .entry("checkpoint_valid_len_mismatch")
+                            .or_insert(0) += 1;
+                        false
+                    }
+                    Some(entry) if entry.message_count == 0 => {
+                        *startup_fallback_reasons
+                            .entry("checkpoint_zero_messages")
+                            .or_insert(0) += 1;
+                        false
+                    }
+                    Some(entry) => {
+                        match self.load_segment_index(topic, &segment.path) {
+                            None => {
+                                *startup_fallback_reasons
+                                    .entry("missing_or_invalid_index")
+                                    .or_insert(0) += 1;
+                                false
+                            }
+                            Some(index_entries) => {
+                                if index::is_index_compatible(
+                                    &index_entries,
+                                    segment.base_offset,
+                                    entry.message_count,
+                                    entry.valid_len,
+                                    SPARSE_INDEX_STRIDE,
+                                ) {
+                                    true
+                                } else {
+                                    *startup_fallback_reasons.entry("index_incompatible").or_insert(0) += 1;
+                                    false
+                                }
+                            }
                         }
-                        let Some(index_entries) = self.load_segment_index(topic, &segment.path)
-                        else {
-                            return false;
-                        };
-                        index::is_index_compatible(
-                            &index_entries,
-                            segment.base_offset,
-                            entry.message_count,
-                            entry.valid_len,
-                            SPARSE_INDEX_STRIDE,
-                        )
-                    })
-                    .unwrap_or(false);
+                    }
+                }
+            };
 
             if trusted_closed {
                 let trusted = checkpoint_by_base
@@ -359,6 +394,7 @@ impl Broker {
                         .map_err(BrokerError::Io)?;
                 segment.message_count = replay.message_count;
                 segment.size_bytes = replay.valid_len;
+                startup_skipped_segments += 1;
                 continue;
             }
 
@@ -366,6 +402,33 @@ impl Broker {
                 .map_err(BrokerError::Io)?;
             segment.message_count = replay.message_count;
             segment.size_bytes = replay.valid_len;
+            startup_replayed_segments += 1;
+            can_metadata_skip = false;
+        }
+
+        if startup_replayed_segments > 0 {
+            let mut reasons: Vec<_> = startup_fallback_reasons.into_iter().collect();
+            reasons.sort_by_key(|(reason, _)| *reason);
+            let fallback_reasons = reasons
+                .into_iter()
+                .map(|(reason, count)| format!("{reason}:{count}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            info!(
+                topic = %topic,
+                skipped_segments = startup_skipped_segments,
+                replayed_segments = startup_replayed_segments,
+                fallback_reasons = %fallback_reasons,
+                "startup replay path summary"
+            );
+        } else {
+            info!(
+                topic = %topic,
+                skipped_segments = startup_skipped_segments,
+                replayed_segments = startup_replayed_segments,
+                fallback_reasons = "",
+                "startup replay path summary"
+            );
         }
 
         let state = TopicState {
