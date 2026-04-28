@@ -1,7 +1,7 @@
 use std::fs::remove_file;
 
-use crate::broker::index;
 use super::{Broker, BrokerError};
+use crate::broker::index;
 
 impl Broker {
     pub(super) fn enforce_retention(&mut self, topic: &str) -> Result<bool, BrokerError> {
@@ -48,7 +48,7 @@ mod tests {
 
     #[test]
     fn retention_drops_oldest_segment_first() {
-        let dir = std::env::temp_dir().join(format!(
+        let data_dir = std::env::temp_dir().join(format!(
             "herbatka_retention_{}_{}",
             std::process::id(),
             SystemTime::now()
@@ -56,19 +56,19 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        create_dir_all(&dir).unwrap();
+        create_dir_all(&data_dir).unwrap();
         let cfg = BrokerConfig {
-            data_dir: dir.clone(),
+            data_dir: data_dir.clone(),
             segment_max_bytes: 80,
             max_topic_bytes: Some(140),
             fsync_policy: FsyncPolicy::Never,
         };
         let mut broker = Broker::with_config(cfg);
         broker.create_topic("events".into()).unwrap();
-        let big = vec![b'x'; 64];
-        broker.produce("events", msg(&big)).unwrap();
-        broker.produce("events", msg(&big)).unwrap();
-        broker.produce("events", msg(&big)).unwrap();
+        let large_payload = vec![b'x'; 64];
+        broker.produce("events", msg(&large_payload)).unwrap();
+        broker.produce("events", msg(&large_payload)).unwrap();
+        broker.produce("events", msg(&large_payload)).unwrap();
 
         assert!(broker.fetch("events", 0).unwrap().is_none());
         assert!(broker.fetch("events", 2).unwrap().is_some());

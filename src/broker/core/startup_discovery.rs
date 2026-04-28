@@ -45,7 +45,12 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
     let checkpoint = broker.load_topic_checkpoint(topic);
     let checkpoint_by_base: HashMap<u64, &SegmentCheckpoint> = checkpoint
         .as_ref()
-        .map(|cp| cp.segments.iter().map(|seg| (seg.base_offset, seg)).collect())
+        .map(|cp| {
+            cp.segments
+                .iter()
+                .map(|seg| (seg.base_offset, seg))
+                .collect()
+        })
         .unwrap_or_default();
 
     let mut log = Log::with_base_offset(segments[0].base_offset);
@@ -73,7 +78,9 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
         } else {
             match checkpoint_by_base.get(&segment.base_offset) {
                 None => {
-                    *startup_fallback_reasons.entry("missing_checkpoint").or_insert(0) += 1;
+                    *startup_fallback_reasons
+                        .entry("missing_checkpoint")
+                        .or_insert(0) += 1;
                     false
                 }
                 Some(entry) if entry.valid_len != segment.size_bytes => {
@@ -119,9 +126,12 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
             let trusted = checkpoint_by_base
                 .get(&segment.base_offset)
                 .expect("trusted segment must have checkpoint entry");
-            let replay =
-                startup::skip_trusted_closed_segment(&segment.path, &mut log, trusted.message_count)
-                    .map_err(BrokerError::Io)?;
+            let replay = startup::skip_trusted_closed_segment(
+                &segment.path,
+                &mut log,
+                trusted.message_count,
+            )
+            .map_err(BrokerError::Io)?;
             segment.message_count = replay.message_count;
             segment.size_bytes = replay.valid_len;
             startup_skipped_segments += 1;
@@ -172,7 +182,13 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
         &state
             .segments
             .iter()
-            .map(|segment| (segment.base_offset, segment.message_count, segment.size_bytes))
+            .map(|segment| {
+                (
+                    segment.base_offset,
+                    segment.message_count,
+                    segment.size_bytes,
+                )
+            })
             .collect::<Vec<_>>(),
     );
     if let Err(e) = std::fs::write(
@@ -279,8 +295,8 @@ mod tests {
         let mut broker = isolated_broker();
         broker.create_topic("events".into()).unwrap();
         broker.produce("events", msg(b"hello")).unwrap();
-        let random_file = broker.config.data_dir.join("notes.txt");
-        let mut file = File::create(random_file).unwrap();
+        let non_log_file = broker.config.data_dir.join("notes.txt");
+        let mut file = File::create(non_log_file).unwrap();
         file.write_all(b"ignore me").unwrap();
 
         //WHEN

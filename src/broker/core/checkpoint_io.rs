@@ -3,9 +3,9 @@ use std::path::Path;
 
 use tracing::warn;
 
+use super::Broker;
 use crate::broker::checkpoint::{self, TopicCheckpoint};
 use crate::broker::index::{self, SparseIndexEntry};
-use super::Broker;
 
 impl Broker {
     pub(super) fn load_topic_checkpoint(&self, topic: &str) -> Option<TopicCheckpoint> {
@@ -78,7 +78,13 @@ impl Broker {
             &state
                 .segments
                 .iter()
-                .map(|segment| (segment.base_offset, segment.message_count, segment.size_bytes))
+                .map(|segment| {
+                    (
+                        segment.base_offset,
+                        segment.message_count,
+                        segment.size_bytes,
+                    )
+                })
                 .collect::<Vec<_>>(),
         );
         let encoded = checkpoint::encode_topic_checkpoint(&checkpoint);

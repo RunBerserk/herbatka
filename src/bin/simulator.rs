@@ -165,10 +165,7 @@ impl DeterministicRng {
 
     fn next_u64(&mut self) -> u64 {
         // Small deterministic LCG for reproducible simulator variation.
-        self.state = self
-            .state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1);
+        self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1);
         self.state
     }
 
@@ -232,10 +229,13 @@ fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
             "--topic" => topic = Some(value.clone()),
             "--vehicles" => vehicles = Some(parse_positive_u64("--vehicles", value)?),
             "--rate" => rate = Some(parse_positive_u64("--rate", value)?),
-            "--duration-secs" => duration_secs = Some(parse_positive_u64("--duration-secs", value)?),
+            "--duration-secs" => {
+                duration_secs = Some(parse_positive_u64("--duration-secs", value)?)
+            }
             "--scenario" => {
-                scenario = ScenarioKind::parse(value)
-                    .ok_or_else(|| "scenario must be one of: steady, burst, idle, reconnect".to_string())?;
+                scenario = ScenarioKind::parse(value).ok_or_else(|| {
+                    "scenario must be one of: steady, burst, idle, reconnect".to_string()
+                })?;
             }
             "--load-profile" => {
                 load_profile = LoadProfileKind::parse(value).ok_or_else(|| {
@@ -325,38 +325,26 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
             .checked_duration_since(vehicle.last_update_at)
             .unwrap_or(interval);
         vehicle.last_update_at = tick_now;
-        let snapshot = advance_vehicle_with_walls(
-            vehicle,
-            speed,
-            dt,
-            vehicle_id,
-            &mut rng,
-        );
+        let snapshot = advance_vehicle_with_walls(vehicle, speed, dt, vehicle_id, &mut rng);
         let payload = build_event_payload(seq, vehicle_id, speed, snapshot);
         let request = build_produce_line(&args.topic, &payload)?;
-        stream
-            .write_all(request.as_bytes())
-            .map_err(|e| {
-                summary.produced_err += 1;
-                summary.write_errors += 1;
-                format!("write failed at seq {seq}: {e}")
-            })?;
-        stream
-            .flush()
-            .map_err(|e| {
-                summary.produced_err += 1;
-                summary.write_errors += 1;
-                format!("flush failed at seq {seq}: {e}")
-            })?;
+        stream.write_all(request.as_bytes()).map_err(|e| {
+            summary.produced_err += 1;
+            summary.write_errors += 1;
+            format!("write failed at seq {seq}: {e}")
+        })?;
+        stream.flush().map_err(|e| {
+            summary.produced_err += 1;
+            summary.write_errors += 1;
+            format!("flush failed at seq {seq}: {e}")
+        })?;
 
         let mut response = String::new();
-        reader
-            .read_line(&mut response)
-            .map_err(|e| {
-                summary.produced_err += 1;
-                summary.read_errors += 1;
-                format!("read failed at seq {seq}: {e}")
-            })?;
+        reader.read_line(&mut response).map_err(|e| {
+            summary.produced_err += 1;
+            summary.read_errors += 1;
+            format!("read failed at seq {seq}: {e}")
+        })?;
         if response.is_empty() {
             summary.produced_err += 1;
             summary.read_errors += 1;
@@ -481,7 +469,10 @@ fn open_connection_once(addr: &str) -> Result<(TcpStream, BufReader<TcpStream>),
     Ok((stream, reader))
 }
 
-fn connect_with_retry(addr: &str, summary: &mut Summary) -> Result<(TcpStream, BufReader<TcpStream>), String> {
+fn connect_with_retry(
+    addr: &str,
+    summary: &mut Summary,
+) -> Result<(TcpStream, BufReader<TcpStream>), String> {
     for attempt in 1..=CONNECT_RETRY_MAX_ATTEMPTS {
         match open_connection_once(addr) {
             Ok(conn) => return Ok(conn),
@@ -514,7 +505,11 @@ fn scenario_decision(kind: ScenarioKind, seq: u64) -> ScenarioDecision {
             ScenarioDecision {
                 send: true,
                 reconnect: false,
-                cadence: if in_burst { Cadence::Fast } else { Cadence::Base },
+                cadence: if in_burst {
+                    Cadence::Fast
+                } else {
+                    Cadence::Base
+                },
             }
         }
         ScenarioKind::Idle => {
@@ -559,7 +554,12 @@ fn effective_interval(base_rate: u64, cadence: Cadence, profile_multiplier: f64)
     Duration::from_secs_f64(1.0 / effective_rate)
 }
 
-fn build_event_payload(seq: u64, vehicle_id: u64, speed: u64, snapshot: MovementSnapshot) -> String {
+fn build_event_payload(
+    seq: u64,
+    vehicle_id: u64,
+    speed: u64,
+    snapshot: MovementSnapshot,
+) -> String {
     // Deterministic, human-readable event shape for repeatable MVP runs.
     // Fixed timestamp anchor plus 100 ms/event to simulate a stable event clock.
     let ts_ms = 1_700_000_000_000u64.saturating_add(seq.saturating_mul(100));

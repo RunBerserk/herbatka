@@ -331,7 +331,8 @@ fn checkpoint_file_is_written_and_restart_still_recovers() {
     broker.produce("events", message(&big)).unwrap();
 
     let checkpoint_path = topic_checkpoint_path(&dir, "events");
-    let checkpoint_raw = std::fs::read_to_string(&checkpoint_path).expect("checkpoint should exist");
+    let checkpoint_raw =
+        std::fs::read_to_string(&checkpoint_path).expect("checkpoint should exist");
     assert!(checkpoint_raw.starts_with("v1\n"));
 
     let mut restarted = Broker::with_config(cfg);
@@ -546,8 +547,16 @@ fn startup_large_dataset_restart_profile() {
     let mut restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
     let restart_elapsed = restart_start.elapsed();
-    eprintln!("profile_marker: restart_elapsed_ms={}", restart_elapsed.as_millis());
+    eprintln!(
+        "profile_marker: restart_elapsed_ms={}",
+        restart_elapsed.as_millis()
+    );
 
-    assert!(restarted.fetch("events", message_count - 1).unwrap().is_some());
+    assert!(
+        restarted
+            .fetch("events", message_count - 1)
+            .unwrap()
+            .is_some()
+    );
     assert!(restarted.fetch("events", message_count).unwrap().is_none());
 }

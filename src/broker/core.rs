@@ -3,11 +3,11 @@
 //! Maps topics to in-memory logs and exposes produce/fetch APIs.
 //! Coordinates topic-level runtime behavior; persistence format is handled in `log::persistence`.
 
-mod topic_paths;
 mod checkpoint_io;
-mod retention;
 mod public_api;
+mod retention;
 mod startup_discovery;
+mod topic_paths;
 
 use std::collections::HashMap;
 use std::io;

@@ -24,7 +24,9 @@ const IO_TIMEOUT: Duration = Duration::from_millis(400);
 
 fn classify_connect_error(addr: &str, error: &io::Error) -> String {
     match error.kind() {
-        io::ErrorKind::ConnectionRefused => format!("broker unavailable at {addr} (connection refused)"),
+        io::ErrorKind::ConnectionRefused => {
+            format!("broker unavailable at {addr} (connection refused)")
+        }
         io::ErrorKind::TimedOut => format!("broker unavailable at {addr} (connect timeout)"),
         io::ErrorKind::NotFound | io::ErrorKind::AddrNotAvailable => {
             format!("broker address {addr} is invalid or unavailable")

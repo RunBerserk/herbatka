@@ -104,11 +104,7 @@ pub const DRAIN_PER_FRAME_CAP: usize = 200;
 
 /// Drain up to `DRAIN_PER_FRAME_CAP` (or a custom `cap`) into `ring`.  
 /// Returns `true` if at least one line was received.
-pub fn drain_into_ring(
-    rx: &mpsc::Receiver<LogLine>,
-    ring: &mut LogRing,
-    cap: usize,
-) -> bool {
+pub fn drain_into_ring(rx: &mpsc::Receiver<LogLine>, ring: &mut LogRing, cap: usize) -> bool {
     let mut any = false;
     for _ in 0..cap {
         match rx.try_recv() {

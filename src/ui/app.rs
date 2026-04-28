@@ -8,11 +8,11 @@ use eframe::egui;
 use super::broker_client::BrokerClient;
 use super::broker_subprocess;
 use super::fleet_stats::compute_fleet_stats;
-use super::simulator_subprocess;
 use super::model::{VehicleSnapshot, apply_payload};
 use super::process_log::{
     DRAIN_PER_FRAME_CAP, LogLine, LogRing, LogSource, LogStream, drain_into_ring,
 };
+use super::simulator_subprocess;
 
 const DEFAULT_BROKER_ADDR: &str = "127.0.0.1:7000";
 const DEFAULT_TOPIC: &str = "events";
@@ -210,8 +210,7 @@ impl UiShellApp {
         if matches!(
             self.connection,
             ConnectionState::Disconnected { .. } | ConnectionState::NeverConnected
-        )
-            && Instant::now() < self.next_reconnect_at
+        ) && Instant::now() < self.next_reconnect_at
         {
             return;
         }
@@ -363,7 +362,13 @@ impl UiShellApp {
         });
     }
 
-    fn project_to_screen(&self, view: MapViewport, rect: egui::Rect, lat: f64, lon: f64) -> egui::Pos2 {
+    fn project_to_screen(
+        &self,
+        view: MapViewport,
+        rect: egui::Rect,
+        lat: f64,
+        lon: f64,
+    ) -> egui::Pos2 {
         let x_t = ((lon - view.min_lon) / view.lon_span()).clamp(0.0, 1.0) as f32;
         let y_t = ((lat - view.min_lat) / view.lat_span()).clamp(0.0, 1.0) as f32;
         let x = egui::lerp(rect.left()..=rect.right(), x_t);
@@ -512,7 +517,11 @@ impl UiShellApp {
         ui.group(|ui| {
             ui.label("Playback Controls");
             ui.horizontal(|ui| {
-                let play_pause_label = if self.playback_paused { "Play" } else { "Pause" };
+                let play_pause_label = if self.playback_paused {
+                    "Play"
+                } else {
+                    "Pause"
+                };
                 if ui.button(play_pause_label).clicked() {
                     self.playback_paused = !self.playback_paused;
                     self.last_poll_at = Instant::now() - POLL_INTERVAL;
@@ -892,7 +901,11 @@ impl UiShellApp {
                 };
                 painter.circle_filled(pos, radius, fill);
                 if is_selected {
-                    painter.circle_stroke(pos, radius + 2.0, egui::Stroke::new(1.5, egui::Color32::WHITE));
+                    painter.circle_stroke(
+                        pos,
+                        radius + 2.0,
+                        egui::Stroke::new(1.5, egui::Color32::WHITE),
+                    );
                     painter.text(
                         pos + egui::vec2(8.0, -8.0),
                         egui::Align2::LEFT_BOTTOM,
@@ -912,7 +925,9 @@ impl UiShellApp {
                 }
             }
 
-            if response.clicked() && let Some((nearest_id, _)) = nearest {
+            if response.clicked()
+                && let Some((nearest_id, _)) = nearest
+            {
                 self.selected_id = Some(nearest_id);
             }
         });

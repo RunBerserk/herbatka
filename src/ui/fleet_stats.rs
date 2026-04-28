@@ -96,14 +96,17 @@ mod tests {
     fn empty_fleet() {
         let m = BTreeMap::new();
         let s = compute_fleet_stats(&m, 0);
-        assert_eq!(s, FleetStats {
-            online: 0,
-            stale: 0,
-            avg_speed_kmh: None,
-            read_next_offset: 0,
-            newest_buffered_offset: None,
-            lag_events: None,
-        });
+        assert_eq!(
+            s,
+            FleetStats {
+                online: 0,
+                stale: 0,
+                avg_speed_kmh: None,
+                read_next_offset: 0,
+                newest_buffered_offset: None,
+                lag_events: None,
+            }
+        );
     }
 
     #[test]

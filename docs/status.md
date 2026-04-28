@@ -47,18 +47,20 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - [x] Basic error/reconnect handling
  - [x] Minimal map pane (lat/lon points + vehicle selection) 
  - [x] lat/lon movement
+ - refactoring core.rs
+    [x] Create src/broker/core/ modules (topic_paths.rs, checkpoint_io.rs, retention.rs, startup.rs, api.rs) and wire mod ... in core.rs only
+    [x] Move topic path helpers into core/topic_paths.rs and verify compile/tests
+    [x] Move checkpoint/index I/O helpers into core/checkpoint_io.rs and verify compile/tests (next isolated slice)
+    [x] Move retention logic (enforce_retention) into core/retention.rs and verify compile/tests
+    [x] Move startup/discovery logic (discover_segments, load_topic_state, topic discovery helper) into core/startup.rs with no behavior change
+    [x] Move public broker API methods (create_topic, discover_topics_on_startup, produce, fetch, fetch_batch) into core/api.rs
+    [x] Keep shared types/constants in core.rs until all moves are complete (Broker, TopicState, SegmentMeta, BrokerError, constants)(no code changes needed)
+    [x] Trim core.rs to minimal wiring/shared definitions after all extractions(no code changes needed)
+    [x] extracting tests
+    [x] Run validation after each step: cargo test --lib and cargo test --test broker_persistence
+    [x] Final pass: small cleanup-only naming/comments, no protocol/storage/behavior changes
 ## In Progress
-refactoring core.rs
-[x] Create src/broker/core/ modules (topic_paths.rs, checkpoint_io.rs, retention.rs, startup.rs, api.rs) and wire mod ... in core.rs only
-[x] Move topic path helpers into core/topic_paths.rs and verify compile/tests
-[x] Move checkpoint/index I/O helpers into core/checkpoint_io.rs and verify compile/tests (next isolated slice)
-[x] Move retention logic (enforce_retention) into core/retention.rs and verify compile/tests
-[x] Move startup/discovery logic (discover_segments, load_topic_state, topic discovery helper) into core/startup.rs with no behavior change
-[x] Move public broker API methods (create_topic, discover_topics_on_startup, produce, fetch, fetch_batch) into core/api.rs
-[x] Keep shared types/constants in core.rs until all moves are complete (Broker, TopicState, SegmentMeta, BrokerError, constants)(no code changes needed)
-[x] Trim core.rs to minimal wiring/shared definitions after all extractions(no code changes needed)
-[ ] Run validation after each step: cargo test --lib and cargo test --test broker_persistence
-[ ] Final pass: small cleanup-only naming/comments, no protocol/storage/behavior changes
+
 
  
 ## Next Up

@@ -26,20 +26,21 @@ pub(super) fn produce(
     message: Message,
 ) -> Result<u64, BrokerError> {
     // Durability policy is controlled by `config.fsync_policy`.
-    let (offset, rolled_segment, cadence_due, sparse_index_entry) = {
+    let (offset, rolled_segment, checkpoint_cadence_due, sparse_index_entry) = {
         let state = broker
             .topics
             .get_mut(topic)
             .ok_or(BrokerError::UnknownTopic)?;
 
         let next_offset = state.log.next_offset();
-        let estimated = estimate_record_size(&message).map_err(BrokerError::Io)? as u64;
+        let estimated_bytes = estimate_record_size(&message).map_err(BrokerError::Io)? as u64;
         let should_roll = state
             .segments
             .last()
             .map(|active| {
                 active.size_bytes > 0
-                    && active.size_bytes.saturating_add(estimated) > broker.config.segment_max_bytes
+                    && active.size_bytes.saturating_add(estimated_bytes)
+                        > broker.config.segment_max_bytes
             })
             .unwrap_or(true);
         if should_roll {
@@ -62,14 +63,15 @@ pub(super) fn produce(
             .expect("active segment should exist");
         let message_index_in_segment = active.message_count;
         let record_position = active.size_bytes;
-        let bytes_written = append_to_segment_file(&active.path, &message, broker.config.fsync_policy)
-            .map_err(BrokerError::Io)?;
+        let bytes_written =
+            append_to_segment_file(&active.path, &message, broker.config.fsync_policy)
+                .map_err(BrokerError::Io)?;
         let offset = state.log.append(message);
         active.message_count += 1;
         active.size_bytes = active.size_bytes.saturating_add(bytes_written);
         state.pending_checkpoint_appends += 1;
 
-        let cadence_due =
+        let checkpoint_cadence_due =
             state.pending_checkpoint_appends >= super::CHECKPOINT_FLUSH_EVERY_APPENDS;
         let sparse_index_entry = if message_index_in_segment % super::SPARSE_INDEX_STRIDE == 0 {
             Some((
@@ -82,7 +84,12 @@ pub(super) fn produce(
         } else {
             None
         };
-        (offset, should_roll, cadence_due, sparse_index_entry)
+        (
+            offset,
+            should_roll,
+            checkpoint_cadence_due,
+            sparse_index_entry,
+        )
     };
 
     if let Some((segment_path, entry)) = sparse_index_entry
@@ -97,9 +104,11 @@ pub(super) fn produce(
     }
 
     let retention_changed = broker.enforce_retention(topic)?;
-    let checkpoint_due = rolled_segment || retention_changed || cadence_due;
+    let checkpoint_due = rolled_segment || retention_changed || checkpoint_cadence_due;
     if checkpoint_due {
-        broker.persist_topic_checkpoint(topic).map_err(BrokerError::Io)?;
+        broker
+            .persist_topic_checkpoint(topic)
+            .map_err(BrokerError::Io)?;
         if let Some(state) = broker.topics.get_mut(topic) {
             state.pending_checkpoint_appends = 0;
         }

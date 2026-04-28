@@ -17,11 +17,13 @@ pub(crate) fn checkpoint_from_snapshots(snapshots: &[(u64, u64, u64)]) -> TopicC
     TopicCheckpoint {
         segments: snapshots
             .iter()
-            .map(|(base_offset, message_count, valid_len)| SegmentCheckpoint {
-                base_offset: *base_offset,
-                message_count: *message_count,
-                valid_len: *valid_len,
-            })
+            .map(
+                |(base_offset, message_count, valid_len)| SegmentCheckpoint {
+                    base_offset: *base_offset,
+                    message_count: *message_count,
+                    valid_len: *valid_len,
+                },
+            )
             .collect(),
     }
 }
