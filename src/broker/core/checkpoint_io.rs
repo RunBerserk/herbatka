@@ -3,8 +3,8 @@ use std::path::Path;
 
 use tracing::warn;
 
-use super::checkpoint::{self, TopicCheckpoint};
-use super::index::{self, SparseIndexEntry};
+use crate::broker::checkpoint::{self, TopicCheckpoint};
+use crate::broker::index::{self, SparseIndexEntry};
 use super::Broker;
 
 impl Broker {

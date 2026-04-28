@@ -1,6 +1,6 @@
 use std::fs::remove_file;
 
-use super::index;
+use crate::broker::index;
 use super::{Broker, BrokerError};
 
 impl Broker {
