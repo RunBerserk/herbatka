@@ -125,3 +125,69 @@ pub(super) fn fetch_batch<'a>(
     let state = broker.topics.get(topic).ok_or(BrokerError::UnknownTopic)?;
     Ok(state.log.read_range(offset, limit))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{BrokerConfig, FsyncPolicy};
+    use std::collections::HashMap;
+    use std::fs::create_dir_all;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn msg(payload: &[u8]) -> Message {
+        Message {
+            key: None,
+            payload: payload.to_vec(),
+            timestamp: SystemTime::now(),
+            headers: HashMap::new(),
+        }
+    }
+
+    fn isolated_broker() -> Broker {
+        let dir = std::env::temp_dir().join(format!(
+            "herbatka_topics_isolated_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        create_dir_all(&dir).unwrap();
+        let cfg = BrokerConfig {
+            data_dir: dir,
+            segment_max_bytes: 80,
+            max_topic_bytes: None,
+            fsync_policy: FsyncPolicy::Never,
+        };
+        Broker::with_config(cfg)
+    }
+
+    #[test]
+    fn topics_are_isolated() {
+        //GIVEN
+        let mut broker = isolated_broker();
+
+        broker.create_topic("A".into()).unwrap();
+        broker.create_topic("B".into()).unwrap();
+
+        //WHEN
+        broker.produce("A", msg(b"only-a")).unwrap();
+        broker.produce("B", msg(b"only-b")).unwrap();
+
+        //THEN
+        let from_a = broker
+            .fetch("A", 0)
+            .unwrap()
+            .expect("A should have offset 0");
+        let from_b = broker
+            .fetch("B", 0)
+            .unwrap()
+            .expect("B should have offset 0");
+
+        assert_eq!(from_a.payload, b"only-a".to_vec());
+        assert_eq!(from_b.payload, b"only-b".to_vec());
+
+        // A's log should not see B's message at offset 0
+        assert_ne!(from_a.payload, b"only-b".to_vec());
+    }
+}

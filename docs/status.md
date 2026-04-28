@@ -54,9 +54,9 @@ refactoring core.rs
 [x] Move checkpoint/index I/O helpers into core/checkpoint_io.rs and verify compile/tests (next isolated slice)
 [x] Move retention logic (enforce_retention) into core/retention.rs and verify compile/tests
 [x] Move startup/discovery logic (discover_segments, load_topic_state, topic discovery helper) into core/startup.rs with no behavior change
-[ ] Move public broker API methods (create_topic, discover_topics_on_startup, produce, fetch, fetch_batch) into core/api.rs
-[ ] Keep shared types/constants in core.rs until all moves are complete (Broker, TopicState, SegmentMeta, BrokerError, constants)
-[ ] Trim core.rs to minimal wiring/shared definitions after all extractions
+[x] Move public broker API methods (create_topic, discover_topics_on_startup, produce, fetch, fetch_batch) into core/api.rs
+[x] Keep shared types/constants in core.rs until all moves are complete (Broker, TopicState, SegmentMeta, BrokerError, constants)(no code changes needed)
+[x] Trim core.rs to minimal wiring/shared definitions after all extractions(no code changes needed)
 [ ] Run validation after each step: cargo test --lib and cargo test --test broker_persistence
 [ ] Final pass: small cleanup-only naming/comments, no protocol/storage/behavior changes
 
