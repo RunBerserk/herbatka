@@ -59,9 +59,11 @@ Persistence and recovery baseline -> moving toward external access (TCP)
     [x] extracting tests
     [x] Run validation after each step: cargo test --lib and cargo test --test broker_persistence
     [x] Final pass: small cleanup-only naming/comments, no protocol/storage/behavior changes
+ - refactor simulator.rs
+    [x]Extract CLI parsing module
 ## In Progress
 refactor simulator.rs
-[]Extract CLI parsing module
+
 []Extract movement model module
 []Extract broker transport/retry module
 []Keep run_simulation as orchestration
