@@ -61,11 +61,11 @@ Persistence and recovery baseline -> moving toward external access (TCP)
     [x] Final pass: small cleanup-only naming/comments, no protocol/storage/behavior changes
  - refactor simulator.rs
     [x]Extract CLI parsing module
+    [x]Extract movement model module    
+    [x]Extract broker transport/retry module
 ## In Progress
 refactor simulator.rs
 
-[]Extract movement model module
-[]Extract broker transport/retry module
 []Keep run_simulation as orchestration
 []Run cargo test --lib / relevant tests after each step
 

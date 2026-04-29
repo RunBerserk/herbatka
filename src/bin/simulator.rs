@@ -2,8 +2,7 @@
 //! Usage:
 //!   simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--load-profile <constant|ramp|spike>] [--seed <u64>] [--quiet]
 
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpStream;
+use std::io::{BufRead, Write};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -11,6 +10,8 @@ use std::time::{Duration, Instant};
 mod cli;
 #[path = "simulator/movement.rs"]
 mod movement;
+#[path = "simulator/transport.rs"]
+mod transport;
 
 use herbatka::observability;
 use tracing::error;
@@ -18,10 +19,10 @@ use movement::{
     advance_vehicle_with_walls, init_vehicle_motion, speed_for_event, MovementSnapshot,
     VehicleMotionState, BASE_CENTER_LON, WALL_MAX_LAT, WALL_MAX_LON, WALL_MIN_LAT, WALL_MIN_LON,
 };
+use transport::connect_with_retry;
 
 const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--load-profile <constant|ramp|spike>] [--seed <u64>] [--quiet]";
 const DEFAULT_SEED: u64 = 0xC0FFEE1234;
-const CONNECT_RETRY_MAX_ATTEMPTS: u32 = 3;
 const PROGRESS_EVERY_SECS: u64 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -282,37 +283,8 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     Ok(summary)
 }
 
-fn open_connection_once(addr: &str) -> Result<(TcpStream, BufReader<TcpStream>), String> {
-    let stream = TcpStream::connect(addr).map_err(|e| format!("connect failed to {addr}: {e}"))?;
-    let reader_stream = stream
-        .try_clone()
-        .map_err(|e| format!("clone failed: {e}"))?;
-    let reader = BufReader::new(reader_stream);
-    Ok((stream, reader))
-}
-
-fn connect_with_retry(
-    addr: &str,
-    summary: &mut Summary,
-) -> Result<(TcpStream, BufReader<TcpStream>), String> {
-    for attempt in 1..=CONNECT_RETRY_MAX_ATTEMPTS {
-        match open_connection_once(addr) {
-            Ok(conn) => return Ok(conn),
-            Err(e) => {
-                summary.connect_errors += 1;
-                if attempt == CONNECT_RETRY_MAX_ATTEMPTS {
-                    return Err(e);
-                }
-                sleep(retry_backoff(attempt));
-            }
-        }
-    }
-    Err("unreachable retry state".to_string())
-}
-
 fn retry_backoff(attempt: u32) -> Duration {
-    // 1->200ms, 2->400ms, ...
-    Duration::from_millis(200u64.saturating_mul(attempt as u64))
+    transport::retry_backoff(attempt)
 }
 
 fn scenario_decision(kind: ScenarioKind, seq: u64) -> ScenarioDecision {
@@ -392,16 +364,7 @@ fn build_event_payload(
 }
 
 fn build_produce_line(topic: &str, payload: &str) -> Result<String, String> {
-    if topic.trim().is_empty() {
-        return Err("topic must not be empty".to_string());
-    }
-    if payload.is_empty() {
-        return Err("payload must not be empty".to_string());
-    }
-    if payload.contains('\n') || payload.contains('\r') {
-        return Err("payload must not contain newlines".to_string());
-    }
-    Ok(format!("PRODUCE {topic} {payload}\n"))
+    transport::build_produce_line(topic, payload)
 }
 
 #[cfg(test)]
