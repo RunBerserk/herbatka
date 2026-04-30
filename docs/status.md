@@ -63,11 +63,11 @@ Persistence and recovery baseline -> moving toward external access (TCP)
     [x]Extract CLI parsing module
     [x]Extract movement model module    
     [x]Extract broker transport/retry module
-## In Progress
-refactor simulator.rs
+    [x]Keep run_simulation as orchestration    
+    [x]Run cargo test --lib / relevant tests after each step
 
-[]Keep run_simulation as orchestration
-[]Run cargo test --lib / relevant tests after each step
+## In Progress
+ 
 
  
 ## Next Up
