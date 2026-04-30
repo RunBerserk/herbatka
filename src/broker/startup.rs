@@ -29,7 +29,17 @@ pub(crate) fn replay_segment_with_tail_recovery(
     path: &Path,
     log: &mut Log,
 ) -> io::Result<ReplayOutcome> {
+    replay_segment_with_tail_recovery_from(topic, path, log, 0)
+}
+
+pub(crate) fn replay_segment_with_tail_recovery_from(
+    topic: &str,
+    path: &Path,
+    log: &mut Log,
+    start_pos: u64,
+) -> io::Result<ReplayOutcome> {
     let mut file = OpenOptions::new().read(true).write(true).open(path)?;
+    file.seek(std::io::SeekFrom::Start(start_pos))?;
     let mut count = 0u64;
     let valid_len = loop {
         let last_good_pos = file.stream_position()?;

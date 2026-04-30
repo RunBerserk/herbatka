@@ -20,6 +20,12 @@ pub(super) const FALLBACK_REASON_CHECKPOINT_ZERO_MESSAGES: &str = "checkpoint_ze
 pub(super) const FALLBACK_REASON_MISSING_OR_INVALID_INDEX: &str = "missing_or_invalid_index";
 pub(super) const FALLBACK_REASON_INDEX_INCOMPATIBLE: &str = "index_incompatible";
 
+#[derive(Debug, Clone, Copy)]
+struct TailSeekHint {
+    start_pos: u64,
+    start_offset: u64,
+}
+
 fn format_fallback_reasons(startup_fallback_reasons: HashMap<&'static str, u64>) -> String {
     let mut reasons: Vec<_> = startup_fallback_reasons.into_iter().collect();
     reasons.sort_by_key(|(reason, _)| *reason);
@@ -28,6 +34,45 @@ fn format_fallback_reasons(startup_fallback_reasons: HashMap<&'static str, u64>)
         .map(|(reason, count)| format!("{reason}:{count}"))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn resolve_tail_seek_hint(
+    segment: &SegmentMeta,
+    checkpoint_entry: Option<&SegmentCheckpoint>,
+    index_entries: Option<&[index::SparseIndexEntry]>,
+    stride: u64,
+) -> Option<TailSeekHint> {
+    let checkpoint_entry = checkpoint_entry?;
+    let index_entries = index_entries?;
+    if checkpoint_entry.message_count == 0 {
+        return None;
+    }
+    if checkpoint_entry.valid_len != segment.size_bytes {
+        return None;
+    }
+    if !index::is_index_compatible(
+        index_entries,
+        segment.base_offset,
+        checkpoint_entry.message_count,
+        checkpoint_entry.valid_len,
+        stride,
+    ) {
+        return None;
+    }
+    let last = index_entries.last()?;
+    let expected_last_offset = segment
+        .base_offset
+        .saturating_add(checkpoint_entry.message_count.saturating_sub(1));
+    if last.offset > expected_last_offset {
+        return None;
+    }
+    if last.position >= checkpoint_entry.valid_len {
+        return None;
+    }
+    Some(TailSeekHint {
+        start_pos: last.position,
+        start_offset: last.offset,
+    })
 }
 
 pub(super) fn discover_topics_on_startup(broker: &mut Broker) -> Result<(), BrokerError> {
@@ -77,6 +122,8 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
     let mut can_metadata_skip = true;
     let mut startup_skipped_segments = 0u64;
     let mut startup_replayed_segments = 0u64;
+    let mut tail_partial_replay_used = 0u64;
+    let mut tail_partial_replay_fallback = 0u64;
     let mut startup_fallback_reasons: HashMap<&'static str, u64> = HashMap::new();
     for (idx, segment) in segments.iter_mut().enumerate() {
         if log.next_offset() != segment.base_offset {
@@ -159,8 +206,45 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
             continue;
         }
 
-        let replay = startup::replay_segment_with_tail_recovery(topic, &segment.path, &mut log)
-            .map_err(BrokerError::Io)?;
+        let replay = if is_tail_segment {
+            let tail_hint = resolve_tail_seek_hint(
+                segment,
+                checkpoint_by_base.get(&segment.base_offset).copied(),
+                broker
+                    .load_segment_index(topic, &segment.path)
+                    .as_deref(),
+                super::SPARSE_INDEX_STRIDE,
+            );
+            if let Some(hint) = tail_hint {
+                if hint.start_offset < log.next_offset() {
+                    tail_partial_replay_fallback += 1;
+                    startup::replay_segment_with_tail_recovery(topic, &segment.path, &mut log)
+                        .map_err(BrokerError::Io)?
+                } else {
+                    let skipped_prefix = hint.start_offset.saturating_sub(log.next_offset());
+                    log.advance_base_offset(skipped_prefix);
+                    tail_partial_replay_used += 1;
+                    let replay = startup::replay_segment_with_tail_recovery_from(
+                        topic,
+                        &segment.path,
+                        &mut log,
+                        hint.start_pos,
+                    )
+                    .map_err(BrokerError::Io)?;
+                    startup::ReplayOutcome {
+                        message_count: replay.message_count.saturating_add(skipped_prefix),
+                        valid_len: replay.valid_len,
+                    }
+                }
+            } else {
+                tail_partial_replay_fallback += 1;
+                startup::replay_segment_with_tail_recovery(topic, &segment.path, &mut log)
+                    .map_err(BrokerError::Io)?
+            }
+        } else {
+            startup::replay_segment_with_tail_recovery(topic, &segment.path, &mut log)
+                .map_err(BrokerError::Io)?
+        };
         segment.message_count = replay.message_count;
         segment.size_bytes = replay.valid_len;
         startup_replayed_segments += 1;
@@ -173,6 +257,8 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
             topic = %topic,
             skipped_segments = startup_skipped_segments,
             replayed_segments = startup_replayed_segments,
+            tail_partial_replay_used,
+            tail_partial_replay_fallback,
             fallback_reasons = %fallback_reasons,
             "startup replay path summary"
         );
@@ -181,6 +267,8 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
             topic = %topic,
             skipped_segments = startup_skipped_segments,
             replayed_segments = startup_replayed_segments,
+            tail_partial_replay_used,
+            tail_partial_replay_fallback,
             fallback_reasons = "",
             "startup replay path summary"
         );
@@ -338,6 +426,54 @@ mod tests {
         assert_eq!(
             formatted,
             "index_incompatible:3,missing_checkpoint:1,tail_segment:2"
+        );
+    }
+
+    #[test]
+    fn resolve_tail_seek_hint_requires_compatible_metadata() {
+        let segment = SegmentMeta {
+            base_offset: 10,
+            message_count: 0,
+            size_bytes: 200,
+            path: std::path::PathBuf::from("dummy.log"),
+        };
+        let checkpoint = SegmentCheckpoint {
+            base_offset: 10,
+            message_count: 65,
+            valid_len: 200,
+        };
+        let index_entries = vec![
+            index::SparseIndexEntry {
+                offset: 10,
+                position: 0,
+            },
+            index::SparseIndexEntry {
+                offset: 74,
+                position: 150,
+            },
+        ];
+
+        let hint = resolve_tail_seek_hint(
+            &segment,
+            Some(&checkpoint),
+            Some(&index_entries),
+            crate::broker::core::SPARSE_INDEX_STRIDE,
+        );
+        assert_eq!(hint.map(|h| h.start_offset), Some(74));
+        assert_eq!(hint.map(|h| h.start_pos), Some(150));
+
+        let mismatched_checkpoint = SegmentCheckpoint {
+            valid_len: 199,
+            ..checkpoint
+        };
+        assert!(
+            resolve_tail_seek_hint(
+                &segment,
+                Some(&mismatched_checkpoint),
+                Some(&index_entries),
+                crate::broker::core::SPARSE_INDEX_STRIDE
+            )
+            .is_none()
         );
     }
 }

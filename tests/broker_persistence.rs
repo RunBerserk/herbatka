@@ -506,6 +506,119 @@ fn startup_tail_recovery_still_truncates_when_closed_segments_are_skipped() {
 }
 
 #[test]
+fn startup_tail_partial_replay_uses_index_hint_and_preserves_offsets() {
+    let dir = temp_data_dir("herbatka_tail_partial_replay");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 1_000_000,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    for i in 0..130 {
+        let payload = format!("msg-{i}");
+        broker.produce("events", message(payload.as_bytes())).unwrap();
+    }
+    let tail_segment = topic_segment_files(&dir, "events")
+        .last()
+        .expect("tail segment should exist")
+        .clone();
+    let valid_len = std::fs::metadata(&tail_segment).unwrap().len();
+    let checkpoint_path = topic_checkpoint_path(&dir, "events");
+    std::fs::write(&checkpoint_path, format!("v1\n0,130,{valid_len}\n"))
+        .expect("write checkpoint should succeed");
+
+    let mut restarted = Broker::with_config(cfg);
+    restarted.discover_topics_on_startup().unwrap();
+
+    // With index-assisted tail replay, earlier offsets may be skipped in-memory,
+    // but latest tail suffix must remain readable and ordered.
+    assert!(restarted.fetch("events", 0).unwrap().is_none());
+    assert_eq!(
+        restarted.fetch("events", 128).unwrap().unwrap().payload,
+        b"msg-128".to_vec()
+    );
+    assert_eq!(
+        restarted.fetch("events", 129).unwrap().unwrap().payload,
+        b"msg-129".to_vec()
+    );
+}
+
+#[test]
+fn startup_tail_partial_replay_falls_back_when_checkpoint_missing() {
+    let dir = temp_data_dir("herbatka_tail_partial_fallback_checkpoint");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 1_000_000,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    for i in 0..130 {
+        let payload = format!("msg-{i}");
+        broker.produce("events", message(payload.as_bytes())).unwrap();
+    }
+    let checkpoint_path = topic_checkpoint_path(&dir, "events");
+    std::fs::remove_file(&checkpoint_path).expect("remove checkpoint should succeed");
+
+    let mut restarted = Broker::with_config(cfg);
+    restarted.discover_topics_on_startup().unwrap();
+
+    // Missing checkpoint should force full tail replay fallback.
+    assert_eq!(
+        restarted.fetch("events", 0).unwrap().unwrap().payload,
+        b"msg-0".to_vec()
+    );
+    assert_eq!(
+        restarted.fetch("events", 129).unwrap().unwrap().payload,
+        b"msg-129".to_vec()
+    );
+}
+
+#[test]
+fn startup_tail_partial_replay_keeps_corruption_truncation_safety() {
+    let dir = temp_data_dir("herbatka_tail_partial_truncate");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 1_000_000,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    for i in 0..130 {
+        let payload = format!("msg-{i}");
+        broker.produce("events", message(payload.as_bytes())).unwrap();
+    }
+
+    let segments = topic_segment_files(&dir, "events");
+    let tail_segment = segments.last().expect("tail segment should exist").clone();
+    let clean_len = std::fs::metadata(&tail_segment).unwrap().len();
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&tail_segment)
+        .expect("append should succeed");
+    file.write_all(&10u32.to_le_bytes())
+        .expect("tail len write should succeed");
+    file.write_all(&[1u8, 2u8, 3u8])
+        .expect("partial tail write should succeed");
+    drop(file);
+
+    let mut restarted = Broker::with_config(cfg);
+    restarted.discover_topics_on_startup().unwrap();
+
+    let recovered_len = std::fs::metadata(&tail_segment).unwrap().len();
+    assert_eq!(recovered_len, clean_len);
+    assert_eq!(
+        restarted.fetch("events", 129).unwrap().unwrap().payload,
+        b"msg-129".to_vec()
+    );
+    assert!(restarted.fetch("events", 130).unwrap().is_none());
+}
+
+#[test]
 fn corrupt_or_missing_sparse_index_falls_back_safely() {
     let dir = temp_data_dir("herbatka_sparse_index_fallback");
     let cfg = BrokerConfig {

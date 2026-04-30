@@ -67,14 +67,15 @@ Persistence and recovery baseline -> moving toward external access (TCP)
     [x]Extract broker transport/retry module
     [x]Keep run_simulation as orchestration    
     [x]Run cargo test --lib / relevant tests after each step
+ - Tail-segment optimization  : evaluate index-assisted seek/partial replay without weakening corruption safety.
 
 ## In Progress
+ refactor startup_discovery, evaluete more refactorings
  
-- evaluate u64  for message timestamp instead of SystemTime
 
 ## Next Up
 
-- Tail-segment optimization (optional): evaluate index-assisted seek/partial replay without weakening corruption safety.
+
 
 ## Later (TODO, not now)
 
