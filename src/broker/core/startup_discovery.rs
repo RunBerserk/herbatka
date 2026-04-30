@@ -11,6 +11,25 @@ use crate::broker::index;
 use crate::broker::startup;
 use crate::log::store::Log;
 
+pub(super) const FALLBACK_REASON_POST_REPLAY_SKIP_DISABLED: &str = "post_replay_skip_disabled";
+pub(super) const FALLBACK_REASON_TAIL_SEGMENT: &str = "tail_segment";
+pub(super) const FALLBACK_REASON_MISSING_CHECKPOINT: &str = "missing_checkpoint";
+pub(super) const FALLBACK_REASON_CHECKPOINT_VALID_LEN_MISMATCH: &str =
+    "checkpoint_valid_len_mismatch";
+pub(super) const FALLBACK_REASON_CHECKPOINT_ZERO_MESSAGES: &str = "checkpoint_zero_messages";
+pub(super) const FALLBACK_REASON_MISSING_OR_INVALID_INDEX: &str = "missing_or_invalid_index";
+pub(super) const FALLBACK_REASON_INDEX_INCOMPATIBLE: &str = "index_incompatible";
+
+fn format_fallback_reasons(startup_fallback_reasons: HashMap<&'static str, u64>) -> String {
+    let mut reasons: Vec<_> = startup_fallback_reasons.into_iter().collect();
+    reasons.sort_by_key(|(reason, _)| *reason);
+    reasons
+        .into_iter()
+        .map(|(reason, count)| format!("{reason}:{count}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 pub(super) fn discover_topics_on_startup(broker: &mut Broker) -> Result<(), BrokerError> {
     let entries = match read_dir(&broker.config.data_dir) {
         Ok(entries) => entries,
@@ -69,36 +88,38 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
         let is_tail_segment = idx == segments_len - 1;
         let trusted_closed = if !can_metadata_skip {
             *startup_fallback_reasons
-                .entry("post_replay_skip_disabled")
+                .entry(FALLBACK_REASON_POST_REPLAY_SKIP_DISABLED)
                 .or_insert(0) += 1;
             false
         } else if is_tail_segment {
-            *startup_fallback_reasons.entry("tail_segment").or_insert(0) += 1;
+            *startup_fallback_reasons
+                .entry(FALLBACK_REASON_TAIL_SEGMENT)
+                .or_insert(0) += 1;
             false
         } else {
             match checkpoint_by_base.get(&segment.base_offset) {
                 None => {
                     *startup_fallback_reasons
-                        .entry("missing_checkpoint")
+                        .entry(FALLBACK_REASON_MISSING_CHECKPOINT)
                         .or_insert(0) += 1;
                     false
                 }
                 Some(entry) if entry.valid_len != segment.size_bytes => {
                     *startup_fallback_reasons
-                        .entry("checkpoint_valid_len_mismatch")
+                        .entry(FALLBACK_REASON_CHECKPOINT_VALID_LEN_MISMATCH)
                         .or_insert(0) += 1;
                     false
                 }
                 Some(entry) if entry.message_count == 0 => {
                     *startup_fallback_reasons
-                        .entry("checkpoint_zero_messages")
+                        .entry(FALLBACK_REASON_CHECKPOINT_ZERO_MESSAGES)
                         .or_insert(0) += 1;
                     false
                 }
                 Some(entry) => match broker.load_segment_index(topic, &segment.path) {
                     None => {
                         *startup_fallback_reasons
-                            .entry("missing_or_invalid_index")
+                            .entry(FALLBACK_REASON_MISSING_OR_INVALID_INDEX)
                             .or_insert(0) += 1;
                         false
                     }
@@ -113,7 +134,7 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
                             true
                         } else {
                             *startup_fallback_reasons
-                                .entry("index_incompatible")
+                                .entry(FALLBACK_REASON_INDEX_INCOMPATIBLE)
                                 .or_insert(0) += 1;
                             false
                         }
@@ -147,13 +168,7 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
     }
 
     if startup_replayed_segments > 0 {
-        let mut reasons: Vec<_> = startup_fallback_reasons.into_iter().collect();
-        reasons.sort_by_key(|(reason, _)| *reason);
-        let fallback_reasons = reasons
-            .into_iter()
-            .map(|(reason, count)| format!("{reason}:{count}"))
-            .collect::<Vec<_>>()
-            .join(",");
+        let fallback_reasons = format_fallback_reasons(startup_fallback_reasons);
         info!(
             topic = %topic,
             skipped_segments = startup_skipped_segments,
@@ -310,5 +325,19 @@ mod tests {
             restarted.fetch("notes", 0),
             Err(BrokerError::UnknownTopic)
         ));
+    }
+
+    #[test]
+    fn format_fallback_reasons_is_sorted_and_stable() {
+        let mut reasons = HashMap::new();
+        reasons.insert(FALLBACK_REASON_TAIL_SEGMENT, 2);
+        reasons.insert(FALLBACK_REASON_MISSING_CHECKPOINT, 1);
+        reasons.insert(FALLBACK_REASON_INDEX_INCOMPATIBLE, 3);
+
+        let formatted = format_fallback_reasons(reasons);
+        assert_eq!(
+            formatted,
+            "index_incompatible:3,missing_checkpoint:1,tail_segment:2"
+        );
     }
 }

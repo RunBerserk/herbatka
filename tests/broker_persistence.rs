@@ -419,6 +419,12 @@ fn startup_skips_all_eligible_closed_segments() {
     assert!(restarted.fetch("events", 2).unwrap().is_none());
     assert!(restarted.fetch("events", 3).unwrap().is_none());
     assert!(restarted.fetch("events", 4).unwrap().is_some());
+    let visible_from_tail = restarted.fetch_batch("events", 4, 10).unwrap();
+    assert_eq!(
+        visible_from_tail.len(),
+        1,
+        "tail segment should remain readable at its offset"
+    );
 }
 
 #[test]
@@ -451,6 +457,52 @@ fn startup_mixed_skip_and_fallback_keeps_replayed_offsets_visible() {
     assert!(restarted.fetch("events", 1).unwrap().is_some());
     assert!(restarted.fetch("events", 2).unwrap().is_some());
     assert!(restarted.fetch("events", 3).unwrap().is_some());
+}
+
+#[test]
+fn startup_tail_recovery_still_truncates_when_closed_segments_are_skipped() {
+    let dir = temp_data_dir("herbatka_sparse_index_tail_safety");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    let big = vec![b'j'; 64];
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+    broker.produce("events", message(&big)).unwrap();
+
+    let segments = topic_segment_files(&dir, "events");
+    assert!(segments.len() >= 3, "expected multiple segments");
+    let tail_segment = segments.last().expect("tail segment should exist").clone();
+    let clean_len = std::fs::metadata(&tail_segment).unwrap().len();
+
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&tail_segment)
+        .expect("append should succeed");
+    file.write_all(&10u32.to_le_bytes())
+        .expect("tail len write should succeed");
+    file.write_all(&[1u8, 2u8, 3u8])
+        .expect("partial tail write should succeed");
+    drop(file);
+
+    let mut restarted = Broker::with_config(cfg);
+    restarted.discover_topics_on_startup().unwrap();
+
+    assert!(restarted.fetch("events", 0).unwrap().is_none());
+    assert!(restarted.fetch("events", 1).unwrap().is_none());
+    assert!(restarted.fetch("events", 2).unwrap().is_some());
+    assert!(restarted.fetch("events", 3).unwrap().is_none());
+
+    let recovered_len = std::fs::metadata(&tail_segment).unwrap().len();
+    assert_eq!(
+        recovered_len, clean_len,
+        "tail segment should still be truncated back to last good position"
+    );
 }
 
 #[test]

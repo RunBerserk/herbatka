@@ -120,3 +120,75 @@ fn parse_sparse_index(raw: &str) -> io::Result<Vec<SparseIndexEntry>> {
     }
     Ok(entries)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{SparseIndexEntry, is_index_compatible};
+
+    #[test]
+    fn index_incompatible_when_first_offset_mismatches_base() {
+        let entries = vec![SparseIndexEntry {
+            offset: 11,
+            position: 0,
+        }];
+        assert!(!is_index_compatible(&entries, 10, 1, 64, 64));
+    }
+
+    #[test]
+    fn index_incompatible_when_position_exceeds_valid_len() {
+        let entries = vec![SparseIndexEntry {
+            offset: 10,
+            position: 64,
+        }];
+        assert!(!is_index_compatible(&entries, 10, 1, 64, 64));
+    }
+
+    #[test]
+    fn index_incompatible_when_offsets_or_positions_are_not_strictly_monotonic() {
+        let entries_same_offset = vec![
+            SparseIndexEntry {
+                offset: 10,
+                position: 1,
+            },
+            SparseIndexEntry {
+                offset: 10,
+                position: 2,
+            },
+        ];
+        assert!(!is_index_compatible(
+            &entries_same_offset,
+            10,
+            5,
+            64,
+            64
+        ));
+
+        let entries_backwards_position = vec![
+            SparseIndexEntry {
+                offset: 10,
+                position: 5,
+            },
+            SparseIndexEntry {
+                offset: 11,
+                position: 4,
+            },
+        ];
+        assert!(!is_index_compatible(
+            &entries_backwards_position,
+            10,
+            5,
+            64,
+            64
+        ));
+    }
+
+    #[test]
+    fn index_incompatible_when_last_entry_is_too_far_from_expected_last_offset() {
+        let entries = vec![SparseIndexEntry {
+            offset: 10,
+            position: 0,
+        }];
+        // expected last offset = 10 + 80 - 1 = 89; gap=79 which is >= stride(64)
+        assert!(!is_index_compatible(&entries, 10, 80, 64, 64));
+    }
+}

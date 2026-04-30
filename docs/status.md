@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-27
+Last updated: 2026-04-30
 
 ## Current Phase
 
@@ -37,6 +37,8 @@ Persistence and recovery baseline -> moving toward external access (TCP)
   - [x] Load profiles
   - [x] Docs + test harness
 - Startup sparse index foundation is in place (sidecar write/read + compatibility checks + safe fallback paths).
+- Sparse-index startup skip for trusted closed segments is complete; tail segment replay path remains unchanged with corruption-truncation safety.
+- Startup replay telemetry contract for fallback reasons is covered (`tail_segment`, `missing_checkpoint`, `missing_or_invalid_index`, `index_incompatible`).
 [x] MVP UI client (`egui`, map-first)
  - [x] UI app shell (window + panel layout)
  - [x] Broker connection state + basic fleet list (read-only)
@@ -68,11 +70,10 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 
 ## In Progress
  
+- evaluate u64  for message timestamp instead of SystemTime
 
- 
 ## Next Up
-- Extend sparse-index startup skip for closed segments (keep tail replay path unchanged).
-- Collect startup replay telemetry (`skipped/replayed/fallback reasons`) and verify with integration tests.
+
 - Tail-segment optimization (optional): evaluate index-assisted seek/partial replay without weakening corruption safety.
 
 ## Later (TODO, not now)

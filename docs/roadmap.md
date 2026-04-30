@@ -24,6 +24,23 @@ Last updated: 2026-04-30
   5. Run full test suite and validate recovery compatibility on existing segment files.
 - Status: planned, not implemented yet.
 
+### Sparse-Index Startup Skip For Closed Segments
+
+- Status: completed.
+- Acceptance evidence:
+  - Closed segments are skipped only when checkpoint metadata and sparse index compatibility checks pass.
+  - Tail segment replay path is unchanged and still performs corrupted-tail truncation recovery.
+  - Incompatible/missing metadata falls back safely to replay.
+- Verification:
+  - `cargo test --test broker_persistence`
+  - `cargo test --lib`
+- Telemetry contract:
+  - Startup fallback reasons tracked and emitted with stable keys:
+    - `tail_segment`
+    - `missing_checkpoint`
+    - `missing_or_invalid_index`
+    - `index_incompatible`
+
 ## Final Steps (v1 Closure)
 
 ### 1) Split Deliverables: Broker vs UI/Simulator
