@@ -179,11 +179,11 @@ impl UiShellApp {
     }
 
     fn reconcile_selection(&mut self) {
-        if let Some(id) = &self.selected_id {
-            if !self.fleet.contains_key(id) {
-                self.selected_id = None;
-                self.follow_selected = false;
-            }
+        if let Some(id) = &self.selected_id
+            && !self.fleet.contains_key(id)
+        {
+            self.selected_id = None;
+            self.follow_selected = false;
         }
     }
 
@@ -844,10 +844,8 @@ impl UiShellApp {
                 } else {
                     "Follow Vehicle"
                 };
-                if ui.button(follow_label).clicked() {
-                    if self.selected_id.is_some() {
-                        self.follow_selected = !self.follow_selected;
-                    }
+                if ui.button(follow_label).clicked() && self.selected_id.is_some() {
+                    self.follow_selected = !self.follow_selected;
                 }
             });
             if self.selected_id.is_none() {

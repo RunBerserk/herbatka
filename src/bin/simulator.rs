@@ -17,8 +17,8 @@ mod transport;
 use event_cycle::execute_event_cycle;
 use herbatka::observability;
 use movement::{
-    BASE_CENTER_LON, MovementSnapshot, VehicleMotionState, WALL_MAX_LAT, WALL_MAX_LON,
-    WALL_MIN_LAT, WALL_MIN_LON, advance_vehicle_with_walls, init_vehicle_motion, speed_for_event,
+    MovementSnapshot, VehicleMotionState, advance_vehicle_with_walls, init_vehicle_motion,
+    speed_for_event,
 };
 use tracing::error;
 use transport::connect_with_retry;
@@ -187,10 +187,6 @@ fn parse_args() -> Result<SimulatorArgs, String> {
     cli::parse_args()
 }
 
-fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> {
-    cli::parse_args_from(args)
-}
-
 fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     let total_events = args.rate.saturating_mul(args.duration_secs);
     let mut next_tick = Instant::now();
@@ -225,14 +221,17 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
             continue;
         }
 
+        let mut io = event_cycle::EventIo {
+            stream: &mut stream,
+            reader: &mut reader,
+        };
         execute_event_cycle(
             args,
             seq,
             interval,
             &mut motion,
             &mut rng,
-            &mut stream,
-            &mut reader,
+            &mut io,
             &mut summary,
         )?;
 
@@ -253,10 +252,6 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     }
 
     Ok(summary)
-}
-
-fn retry_backoff(attempt: u32) -> Duration {
-    transport::retry_backoff(attempt)
 }
 
 fn scenario_decision(kind: ScenarioKind, seq: u64) -> ScenarioDecision {
@@ -342,6 +337,7 @@ fn build_produce_line(topic: &str, payload: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use movement::{BASE_CENTER_LON, WALL_MAX_LAT, WALL_MAX_LON, WALL_MIN_LAT, WALL_MIN_LON};
 
     #[test]
     fn parse_args_from_accepts_valid_flags() {
@@ -365,7 +361,7 @@ mod tests {
             "--quiet".to_string(),
         ];
 
-        let parsed = parse_args_from(&args).expect("parse should succeed");
+        let parsed = cli::parse_args_from(&args).expect("parse should succeed");
         assert_eq!(
             parsed,
             SimulatorArgs {
@@ -396,7 +392,7 @@ mod tests {
             "--duration-secs".to_string(),
             "5".to_string(),
         ];
-        assert!(parse_args_from(&args).is_err());
+        assert!(cli::parse_args_from(&args).is_err());
     }
 
     #[test]
@@ -413,7 +409,7 @@ mod tests {
             "--duration-secs".to_string(),
             "5".to_string(),
         ];
-        let parsed = parse_args_from(&args).expect("parse should succeed");
+        let parsed = cli::parse_args_from(&args).expect("parse should succeed");
         assert_eq!(parsed.scenario, ScenarioKind::Steady);
         assert_eq!(parsed.load_profile, LoadProfileKind::Constant);
         assert_eq!(parsed.seed, None);
@@ -436,7 +432,7 @@ mod tests {
             "--scenario".to_string(),
             "weird".to_string(),
         ];
-        assert!(parse_args_from(&args).is_err());
+        assert!(cli::parse_args_from(&args).is_err());
     }
 
     #[test]
@@ -455,7 +451,7 @@ mod tests {
             "--load-profile".to_string(),
             "wild".to_string(),
         ];
-        assert!(parse_args_from(&args).is_err());
+        assert!(cli::parse_args_from(&args).is_err());
     }
 
     #[test]
@@ -602,8 +598,8 @@ mod tests {
 
     #[test]
     fn retry_backoff_increases_with_attempt() {
-        assert_eq!(retry_backoff(1), Duration::from_millis(200));
-        assert_eq!(retry_backoff(2), Duration::from_millis(400));
+        assert_eq!(transport::retry_backoff(1), Duration::from_millis(200));
+        assert_eq!(transport::retry_backoff(2), Duration::from_millis(400));
     }
 
     #[test]

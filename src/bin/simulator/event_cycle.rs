@@ -7,14 +7,18 @@ use super::{
     build_event_payload, build_produce_line, speed_for_event,
 };
 
+pub(super) struct EventIo<'a> {
+    pub stream: &'a mut TcpStream,
+    pub reader: &'a mut BufReader<TcpStream>,
+}
+
 pub(super) fn execute_event_cycle(
     args: &SimulatorArgs,
     seq: u64,
     interval: Duration,
     motion: &mut [VehicleMotionState],
     rng: &mut DeterministicRng,
-    stream: &mut TcpStream,
-    reader: &mut BufReader<TcpStream>,
+    io: &mut EventIo<'_>,
     summary: &mut Summary,
 ) -> Result<(), String> {
     let vehicle_id = seq % args.vehicles;
@@ -28,19 +32,19 @@ pub(super) fn execute_event_cycle(
     let snapshot = advance_vehicle_with_walls(vehicle, speed, dt, vehicle_id, rng);
     let payload = build_event_payload(seq, vehicle_id, speed, snapshot);
     let request = build_produce_line(&args.topic, &payload)?;
-    stream.write_all(request.as_bytes()).map_err(|e| {
+    io.stream.write_all(request.as_bytes()).map_err(|e| {
         summary.produced_err += 1;
         summary.write_errors += 1;
         format!("write failed at seq {seq}: {e}")
     })?;
-    stream.flush().map_err(|e| {
+    io.stream.flush().map_err(|e| {
         summary.produced_err += 1;
         summary.write_errors += 1;
         format!("flush failed at seq {seq}: {e}")
     })?;
 
     let mut response = String::new();
-    reader.read_line(&mut response).map_err(|e| {
+    io.reader.read_line(&mut response).map_err(|e| {
         summary.produced_err += 1;
         summary.read_errors += 1;
         format!("read failed at seq {seq}: {e}")

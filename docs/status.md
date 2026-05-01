@@ -70,15 +70,17 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - Tail-segment optimization  : evaluate index-assisted seek/partial replay without weakening corruption safety.
 
 ## In Progress
- refactor startup_discovery, evaluete more refactorings
+clippy cleanup
+ refactor startup_discovery, 
  
 
 ## Next Up
 
+evaluate more refactorings
 
 
 ## Later (TODO, not now)
-
+-run clippy more often, maybe guardrails next
 - Protobuf encoding
 - QUIC transport
 
