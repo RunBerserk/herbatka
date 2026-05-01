@@ -3,8 +3,8 @@ use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
 use super::{
-    advance_vehicle_with_walls, build_event_payload, build_produce_line, speed_for_event,
-    DeterministicRng, SimulatorArgs, Summary, VehicleMotionState,
+    DeterministicRng, SimulatorArgs, Summary, VehicleMotionState, advance_vehicle_with_walls,
+    build_event_payload, build_produce_line, speed_for_event,
 };
 
 pub(super) fn execute_event_cycle(

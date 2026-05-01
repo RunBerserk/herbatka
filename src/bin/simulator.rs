@@ -7,21 +7,21 @@ use std::time::{Duration, Instant};
 
 #[path = "simulator/cli.rs"]
 mod cli;
+#[path = "simulator/event_cycle.rs"]
+mod event_cycle;
 #[path = "simulator/movement.rs"]
 mod movement;
 #[path = "simulator/transport.rs"]
 mod transport;
-#[path = "simulator/event_cycle.rs"]
-mod event_cycle;
 
-use herbatka::observability;
-use tracing::error;
-use movement::{
-    advance_vehicle_with_walls, init_vehicle_motion, speed_for_event, MovementSnapshot,
-    VehicleMotionState, BASE_CENTER_LON, WALL_MAX_LAT, WALL_MAX_LON, WALL_MIN_LAT, WALL_MIN_LON,
-};
-use transport::connect_with_retry;
 use event_cycle::execute_event_cycle;
+use herbatka::observability;
+use movement::{
+    BASE_CENTER_LON, MovementSnapshot, VehicleMotionState, WALL_MAX_LAT, WALL_MAX_LON,
+    WALL_MIN_LAT, WALL_MIN_LON, advance_vehicle_with_walls, init_vehicle_motion, speed_for_event,
+};
+use tracing::error;
+use transport::connect_with_retry;
 
 const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--load-profile <constant|ramp|spike>] [--seed <u64>] [--quiet]";
 const DEFAULT_SEED: u64 = 0xC0FFEE1234;

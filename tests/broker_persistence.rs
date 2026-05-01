@@ -518,7 +518,9 @@ fn startup_tail_partial_replay_uses_index_hint_and_preserves_offsets() {
     broker.create_topic("events".into()).unwrap();
     for i in 0..130 {
         let payload = format!("msg-{i}");
-        broker.produce("events", message(payload.as_bytes())).unwrap();
+        broker
+            .produce("events", message(payload.as_bytes()))
+            .unwrap();
     }
     let tail_segment = topic_segment_files(&dir, "events")
         .last()
@@ -558,7 +560,9 @@ fn startup_tail_partial_replay_falls_back_when_checkpoint_missing() {
     broker.create_topic("events".into()).unwrap();
     for i in 0..130 {
         let payload = format!("msg-{i}");
-        broker.produce("events", message(payload.as_bytes())).unwrap();
+        broker
+            .produce("events", message(payload.as_bytes()))
+            .unwrap();
     }
     let checkpoint_path = topic_checkpoint_path(&dir, "events");
     std::fs::remove_file(&checkpoint_path).expect("remove checkpoint should succeed");
@@ -590,7 +594,9 @@ fn startup_tail_partial_replay_keeps_corruption_truncation_safety() {
     broker.create_topic("events".into()).unwrap();
     for i in 0..130 {
         let payload = format!("msg-{i}");
-        broker.produce("events", message(payload.as_bytes())).unwrap();
+        broker
+            .produce("events", message(payload.as_bytes()))
+            .unwrap();
     }
 
     let segments = topic_segment_files(&dir, "events");

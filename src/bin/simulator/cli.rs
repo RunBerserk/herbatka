@@ -42,12 +42,14 @@ pub(super) fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> 
                 duration_secs = Some(parse_positive_u64("--duration-secs", value)?)
             }
             "--scenario" => {
-                scenario = ScenarioKind::parse(value)
-                    .ok_or_else(|| "scenario must be one of: steady, burst, idle, reconnect".to_string())?;
+                scenario = ScenarioKind::parse(value).ok_or_else(|| {
+                    "scenario must be one of: steady, burst, idle, reconnect".to_string()
+                })?;
             }
             "--load-profile" => {
-                load_profile = LoadProfileKind::parse(value)
-                    .ok_or_else(|| "load profile must be one of: constant, ramp, spike".to_string())?;
+                load_profile = LoadProfileKind::parse(value).ok_or_else(|| {
+                    "load profile must be one of: constant, ramp, spike".to_string()
+                })?;
             }
             "--seed" => {
                 seed = Some(

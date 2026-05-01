@@ -155,13 +155,7 @@ mod tests {
                 position: 2,
             },
         ];
-        assert!(!is_index_compatible(
-            &entries_same_offset,
-            10,
-            5,
-            64,
-            64
-        ));
+        assert!(!is_index_compatible(&entries_same_offset, 10, 5, 64, 64));
 
         let entries_backwards_position = vec![
             SparseIndexEntry {

@@ -210,9 +210,7 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
             let tail_hint = resolve_tail_seek_hint(
                 segment,
                 checkpoint_by_base.get(&segment.base_offset).copied(),
-                broker
-                    .load_segment_index(topic, &segment.path)
-                    .as_deref(),
+                broker.load_segment_index(topic, &segment.path).as_deref(),
                 super::SPARSE_INDEX_STRIDE,
             );
             if let Some(hint) = tail_hint {
