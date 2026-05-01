@@ -116,10 +116,6 @@ impl Broker {
     fn load_topic_state(&self, topic: &str) -> Result<TopicState, BrokerError> {
         startup_discovery::load_topic_state(self, topic)
     }
-
-    fn discover_segments(&self, topic: &str) -> io::Result<Vec<SegmentMeta>> {
-        startup_discovery::discover_segments(self, topic)
-    }
 }
 
 impl Default for Broker {
