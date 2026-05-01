@@ -4,6 +4,17 @@ This document tracks benchmark history for Herbatka.
 
 ## Startup Replay Benchmarks
 
+### 2026-05-01 - Lightweight replay sanity (1 iteration)
+
+- Scope: sanity check after extending sparse seek to non-tail `MustReplay` paths
+- Command: `pwsh ./scripts/startup_replay_bench.ps1 -Iterations 1`
+- Tests: `restart_replays_multiple_segments_in_order` vs `corrupt_or_missing_sparse_index_falls_back_safely`
+
+Results (Windows, single run each; expect noise):
+
+- metadata-skip-startup-path: ~`0.371s`
+- fallback-decode-startup-path: ~`0.344s`
+
 ### 2026-04-27 - Sparse index startup A/B
 
 - Scope: startup replay performance (baseline vs current sparse-index startup changes)

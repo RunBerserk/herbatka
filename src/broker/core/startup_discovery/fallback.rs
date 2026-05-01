@@ -25,6 +25,15 @@ impl<'a> FallbackCounters<'a> {
     }
 }
 
+pub(super) struct StartupReplayLogCounters {
+    pub(super) skipped_segments: u64,
+    pub(super) replayed_segments: u64,
+    pub(super) tail_partial_replay_used: u64,
+    pub(super) tail_partial_replay_fallback: u64,
+    pub(super) closed_partial_replay_used: u64,
+    pub(super) closed_partial_replay_fallback: u64,
+}
+
 pub(super) fn format_fallback_reasons(reasons: HashMap<&'static str, u64>) -> String {
     let mut vec: Vec<_> = reasons.into_iter().collect();
     vec.sort_by_key(|(reason, _)| *reason);
@@ -36,23 +45,22 @@ pub(super) fn format_fallback_reasons(reasons: HashMap<&'static str, u64>) -> St
 
 pub(super) fn log_startup_replay_summary(
     topic: &str,
-    skipped_segments: u64,
-    replayed_segments: u64,
-    tail_partial_replay_used: u64,
-    tail_partial_replay_fallback: u64,
+    counters: StartupReplayLogCounters,
     fallback_reason_map: HashMap<&'static str, u64>,
 ) {
-    let fallback_reasons_summary = if replayed_segments > 0 {
+    let fallback_reasons_summary = if counters.replayed_segments > 0 {
         format_fallback_reasons(fallback_reason_map)
     } else {
         String::new()
     };
     info!(
         topic = %topic,
-        skipped_segments,
-        replayed_segments = replayed_segments,
-        tail_partial_replay_used,
-        tail_partial_replay_fallback,
+        skipped_segments = counters.skipped_segments,
+        replayed_segments = counters.replayed_segments,
+        tail_partial_replay_used = counters.tail_partial_replay_used,
+        tail_partial_replay_fallback = counters.tail_partial_replay_fallback,
+        closed_partial_replay_used = counters.closed_partial_replay_used,
+        closed_partial_replay_fallback = counters.closed_partial_replay_fallback,
         fallback_reasons = %fallback_reasons_summary,
         "startup replay path summary"
     );

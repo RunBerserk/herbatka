@@ -1,3 +1,9 @@
+//! Sparse index helpers for checkpoint-aligned replay.
+//!
+//! `resolve_tail_seek_hint` resolves the **last** sparse anchor for a segment when the checkpoint
+//! and index agree (`is_index_compatible` + last slot caps). Replay can seek to `start_pos` and
+//! advance logical offsets without decoding messages before `start_offset`.
+
 use crate::broker::checkpoint::SegmentCheckpoint;
 use crate::broker::core::SegmentMeta;
 use crate::broker::index;

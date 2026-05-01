@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-30
+Last updated: 2026-05-01
 
 ## Current Phase
 
@@ -39,6 +39,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Startup sparse index foundation is in place (sidecar write/read + compatibility checks + safe fallback paths).
 - Sparse-index startup skip for trusted closed segments is complete; tail segment replay path remains unchanged with corruption-truncation safety.
 - Startup replay telemetry contract for fallback reasons is covered (`tail_segment`, `missing_checkpoint`, `missing_or_invalid_index`, `index_incompatible`).
+- Non-tail `MustReplay` uses the same last-sparse-anchor seek as tail replay when checkpoint + index align (`closed_partial_replay_used` / `closed_partial_replay_fallback` in startup summary log); `can_metadata_skip` barrier for **trusted** closed skip after an earlier decode replay is unchanged (in-memory `fetch` consistency).
 [x] MVP UI client (`egui`, map-first)
  - [x] UI app shell (window + panel layout)
  - [x] Broker connection state + basic fleet list (read-only)
@@ -72,18 +73,18 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - CI guardrails yet (`fmt`/`clippy`/`test` in pipeline), increasing regression risk.
 ## In Progress
 
- 
+- Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
 
 ## Next Up
 
 
 
 ## Later (TODO, not now)
--run clippy more often, maybe guardrails next
+ 
 - Protobuf encoding
 - QUIC transport
 
-- Bevy UI integration
+- Bevy UI integration?
 - Real IoT client (Ox64)
 - scripts, skills folder
 - ui dark mode/bright mode
@@ -91,13 +92,15 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 ## Known Gaps / Risks
 
 
-- Startup replay still decodes tail segment and fallback segments; sparse index helps for closed segments but deeper skip-paths are still needed at larger scales.
+
 - Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients.
- 
+- CI: GitHub Actions workflow runs `fmt` / `clippy -D warnings` / `test` on push to `main`/`master`.
 - TCP text protocol is MVP-only; no schema/framing guarantees for long-term interoperability.
 
 ## Notes
 
+- Startup replay summary log includes `closed_partial_replay_used` and `closed_partial_replay_fallback` (non-tail sparse seek) alongside existing `tail_partial_*` fields.
+- Startup replay benchmark (2026-05-01, `scripts/startup_replay_bench.ps1 -Iterations 1`): metadata-skip ~`0.371s`, fallback-decode ~`0.344s` (single runs; see `docs/benchmarks.md`).
 - Startup replay benchmark (2026-04-27, `scripts/startup_replay_bench.ps1 -Iterations 3`):
   - metadata-skip-startup-path avg: `0.327s`
   - fallback-decode-startup-path avg: `0.333s`
@@ -107,6 +110,6 @@ Persistence and recovery baseline -> moving toward external access (TCP)
   - restart phase markers (`restart_elapsed_ms`) improved on average: baseline `~215ms` -> current `~203ms` (`-12ms`, `~5.6%`)
   - interpretation: test runtime is dominated by data generation/write cost; restart-only marker is the better signal for startup benefit.
 - Benchmark history: `docs/benchmarks.md`
-- Tests passing as of 2026-04-27 (`cargo test --test broker_persistence`)
+- Tests passing (`cargo test`, `cargo test --test broker_persistence`) after 2026-05-01 startup seek extension
 - Focus: keep core minimal, avoid premature features
 - Philosophy: build only what is needed now

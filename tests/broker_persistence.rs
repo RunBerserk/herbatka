@@ -624,6 +624,53 @@ fn startup_tail_partial_replay_keeps_corruption_truncation_safety() {
     assert!(restarted.fetch("events", 130).unwrap().is_none());
 }
 
+/// After any segment full-replays, later **closed non-tail** segments use the same
+/// checkpoint+sparse-index anchor path as tail replay (sparse seek + suffix decode), preserving
+/// fetch visibility for replayed spans (see also `startup_mixed_skip_and_fallback_*`).
+#[test]
+fn startup_closed_must_replay_uses_sparse_seek_after_early_barrier() {
+    let dir = temp_data_dir("herbatka_closed_sparse_seek_barrier");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 2000,
+        max_topic_bytes: None,
+        fsync_policy: FsyncPolicy::Never,
+    };
+    let mut broker = Broker::with_config(cfg.clone());
+    broker.create_topic("events".into()).unwrap();
+    for i in 0..260 {
+        let payload = format!("msg-{i:04}");
+        broker
+            .produce("events", message(payload.as_bytes()))
+            .unwrap();
+    }
+
+    let segments = topic_segment_files(&dir, "events");
+    assert!(
+        segments.len() >= 3,
+        "expected >=3 segments for non-tail replay; got {}",
+        segments.len()
+    );
+    let mut index_files = topic_index_files(&dir, "events");
+    index_files.sort();
+
+    std::fs::write(
+        index_files
+            .first()
+            .expect("first sparse index exists for first segment"),
+        "bad-index-root",
+    )
+    .unwrap();
+
+    let mut restarted = Broker::with_config(cfg);
+    restarted.discover_topics_on_startup().unwrap();
+
+    assert_eq!(
+        restarted.fetch("events", 259).unwrap().unwrap().payload,
+        b"msg-0259".to_vec()
+    );
+}
+
 #[test]
 fn corrupt_or_missing_sparse_index_falls_back_safely() {
     let dir = temp_data_dir("herbatka_sparse_index_fallback");

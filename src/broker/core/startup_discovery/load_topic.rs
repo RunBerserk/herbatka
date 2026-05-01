@@ -31,12 +31,20 @@ fn evaluate_closed_skip_eligibility(
     checkpoint_by_base: &HashMap<u64, &SegmentCheckpoint>,
     counters: &mut FallbackCounters<'_>,
 ) -> ClosedSkipDecision {
-    if !can_metadata_skip {
-        counters.bump(FALLBACK_REASON_POST_REPLAY_SKIP_DISABLED);
+    if is_tail_segment {
+        if can_metadata_skip {
+            counters.bump(FALLBACK_REASON_TAIL_SEGMENT);
+        } else {
+            counters.bump(FALLBACK_REASON_POST_REPLAY_SKIP_DISABLED);
+        }
         return ClosedSkipDecision::MustReplay;
     }
-    if is_tail_segment {
-        counters.bump(FALLBACK_REASON_TAIL_SEGMENT);
+
+    // SkipTrusted advances `Log::base_offset` without appending payloads; FETCH only sees replayed/
+    // appended offsets. Once we take a decoding replay path, downstream closed segments must fully
+    // replay so contiguous history is reflected in memory (broker_persistence regressions rely on this).
+    if !can_metadata_skip {
+        counters.bump(FALLBACK_REASON_POST_REPLAY_SKIP_DISABLED);
         return ClosedSkipDecision::MustReplay;
     }
 
@@ -76,7 +84,7 @@ fn evaluate_closed_skip_eligibility(
     }
 }
 
-fn replay_tail_segment_with_optional_seek(
+fn replay_segment_with_optional_last_sparse_seek(
     broker: &Broker,
     topic: &str,
     segment: &SegmentMeta,
@@ -172,11 +180,16 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
 
     let mut log = Log::with_base_offset(segments[0].base_offset);
     let segments_len = segments.len();
+    // After any decoding replay (`MustReplay`), subsequent tail iterations use
+    // `post_replay_skip_disabled` telemetry instead of `tail_segment`; see `evaluate_closed_skip_eligibility`.
+    // Closed non-tail trusted skip relies on checkpoint + index (+ file length) only, not this flag.
     let mut can_metadata_skip = true;
     let mut startup_skipped_segments = 0u64;
     let mut startup_replayed_segments = 0u64;
     let mut tail_partial_replay_used = 0u64;
     let mut tail_partial_replay_fallback = 0u64;
+    let mut closed_partial_replay_used = 0u64;
+    let mut closed_partial_replay_fallback = 0u64;
     let mut startup_fallback_reasons: HashMap<&'static str, u64> = HashMap::new();
 
     for (idx, segment) in segments.iter_mut().enumerate() {
@@ -216,37 +229,38 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
             ClosedSkipDecision::MustReplay => {}
         };
 
-        let replay = if is_tail_segment {
-            let (outcome, partial_used_delta, partial_fallback_delta) =
-                replay_tail_segment_with_optional_seek(
-                    broker,
-                    topic,
-                    segment,
-                    &mut log,
-                    &checkpoint_by_base,
-                )?;
+        let (replay, partial_used_delta, partial_fallback_delta) =
+            replay_segment_with_optional_last_sparse_seek(
+                broker,
+                topic,
+                segment,
+                &mut log,
+                &checkpoint_by_base,
+            )?;
+        if is_tail_segment {
             tail_partial_replay_used += partial_used_delta;
             tail_partial_replay_fallback += partial_fallback_delta;
-            outcome
         } else {
-            startup::replay_segment_with_tail_recovery(topic, &segment.path, &mut log)
-                .map_err(BrokerError::Io)?
-        };
+            closed_partial_replay_used += partial_used_delta;
+            closed_partial_replay_fallback += partial_fallback_delta;
+        }
 
         segment.message_count = replay.message_count;
         segment.size_bytes = replay.valid_len;
         startup_replayed_segments += 1;
-        // After any metadata replay path, downstream closed segments stop being eligible for
-        // checkpoint/index-based skip paths until continuity is rebuilt from disk replay.
         can_metadata_skip = false;
     }
 
     log_startup_replay_summary(
         topic,
-        startup_skipped_segments,
-        startup_replayed_segments,
-        tail_partial_replay_used,
-        tail_partial_replay_fallback,
+        super::fallback::StartupReplayLogCounters {
+            skipped_segments: startup_skipped_segments,
+            replayed_segments: startup_replayed_segments,
+            tail_partial_replay_used,
+            tail_partial_replay_fallback,
+            closed_partial_replay_used,
+            closed_partial_replay_fallback,
+        },
         startup_fallback_reasons,
     );
 
@@ -256,7 +270,6 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
         pending_checkpoint_appends: 0,
     };
 
-    // Best-effort refresh so startup metadata converges even when fallback path was used.
     persist_startup_checkpoint_best_effort(broker, topic, &state.segments);
 
     Ok(state)
