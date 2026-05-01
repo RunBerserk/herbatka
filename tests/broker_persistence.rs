@@ -160,10 +160,10 @@ fn restart_replays_multiple_segments_in_order() {
 
     let mut restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
-    // Trusted closed segments may be metadata-skipped on startup.
-    assert!(restarted.fetch("events", 0).unwrap().is_none());
-    assert!(restarted.fetch("events", 1).unwrap().is_none());
-    assert!(restarted.fetch("events", 2).unwrap().is_some());
+    // Trusted closed segments may be metadata-skipped on startup, but FETCH still reads from disk.
+    assert_eq!(restarted.fetch("events", 0).unwrap().unwrap().payload, big);
+    assert_eq!(restarted.fetch("events", 1).unwrap().unwrap().payload, big);
+    assert_eq!(restarted.fetch("events", 2).unwrap().unwrap().payload, big);
 }
 
 #[test]
@@ -337,9 +337,9 @@ fn checkpoint_file_is_written_and_restart_still_recovers() {
 
     let mut restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
-    assert!(restarted.fetch("events", 0).unwrap().is_none());
-    assert!(restarted.fetch("events", 1).unwrap().is_none());
-    assert!(restarted.fetch("events", 2).unwrap().is_some());
+    assert_eq!(restarted.fetch("events", 0).unwrap().unwrap().payload, big);
+    assert_eq!(restarted.fetch("events", 1).unwrap().unwrap().payload, big);
+    assert_eq!(restarted.fetch("events", 2).unwrap().unwrap().payload, big);
 }
 
 #[test]
@@ -414,17 +414,16 @@ fn startup_skips_all_eligible_closed_segments() {
 
     let mut restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
-    assert!(restarted.fetch("events", 0).unwrap().is_none());
-    assert!(restarted.fetch("events", 1).unwrap().is_none());
-    assert!(restarted.fetch("events", 2).unwrap().is_none());
-    assert!(restarted.fetch("events", 3).unwrap().is_none());
-    assert!(restarted.fetch("events", 4).unwrap().is_some());
-    let visible_from_tail = restarted.fetch_batch("events", 4, 10).unwrap();
-    assert_eq!(
-        visible_from_tail.len(),
-        1,
-        "tail segment should remain readable at its offset"
-    );
+    for i in 0..5 {
+        assert_eq!(
+            restarted.fetch("events", i).unwrap().unwrap().payload,
+            big,
+            "offset {i} should be readable from disk after trusted skip",
+        );
+    }
+    let all = restarted.fetch_batch("events", 0, 10).unwrap();
+    assert_eq!(all.len(), 5);
+    assert!(all.iter().all(|m| m.payload == big));
 }
 
 #[test]
@@ -453,10 +452,10 @@ fn startup_mixed_skip_and_fallback_keeps_replayed_offsets_visible() {
 
     let mut restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
-    assert!(restarted.fetch("events", 0).unwrap().is_none());
-    assert!(restarted.fetch("events", 1).unwrap().is_some());
-    assert!(restarted.fetch("events", 2).unwrap().is_some());
-    assert!(restarted.fetch("events", 3).unwrap().is_some());
+    assert_eq!(restarted.fetch("events", 0).unwrap().unwrap().payload, big,);
+    assert_eq!(restarted.fetch("events", 1).unwrap().unwrap().payload, big,);
+    assert_eq!(restarted.fetch("events", 2).unwrap().unwrap().payload, big,);
+    assert_eq!(restarted.fetch("events", 3).unwrap().unwrap().payload, big,);
 }
 
 #[test]
@@ -493,9 +492,9 @@ fn startup_tail_recovery_still_truncates_when_closed_segments_are_skipped() {
     let mut restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
 
-    assert!(restarted.fetch("events", 0).unwrap().is_none());
-    assert!(restarted.fetch("events", 1).unwrap().is_none());
-    assert!(restarted.fetch("events", 2).unwrap().is_some());
+    assert_eq!(restarted.fetch("events", 0).unwrap().unwrap().payload, big);
+    assert_eq!(restarted.fetch("events", 1).unwrap().unwrap().payload, big);
+    assert_eq!(restarted.fetch("events", 2).unwrap().unwrap().payload, big);
     assert!(restarted.fetch("events", 3).unwrap().is_none());
 
     let recovered_len = std::fs::metadata(&tail_segment).unwrap().len();
@@ -535,8 +534,15 @@ fn startup_tail_partial_replay_uses_index_hint_and_preserves_offsets() {
     restarted.discover_topics_on_startup().unwrap();
 
     // With index-assisted tail replay, earlier offsets may be skipped in-memory,
-    // but latest tail suffix must remain readable and ordered.
-    assert!(restarted.fetch("events", 0).unwrap().is_none());
+    // but FETCH resolves them via the segment file + sparse index.
+    assert_eq!(
+        restarted.fetch("events", 0).unwrap().unwrap().payload,
+        b"msg-0".to_vec(),
+    );
+    assert_eq!(
+        restarted.fetch("events", 127).unwrap().unwrap().payload,
+        b"msg-127".to_vec(),
+    );
     assert_eq!(
         restarted.fetch("events", 128).unwrap().unwrap().payload,
         b"msg-128".to_vec()
@@ -544,6 +550,18 @@ fn startup_tail_partial_replay_uses_index_hint_and_preserves_offsets() {
     assert_eq!(
         restarted.fetch("events", 129).unwrap().unwrap().payload,
         b"msg-129".to_vec()
+    );
+    let span = restarted.fetch_batch("events", 126, 5).unwrap();
+    assert_eq!(
+        span.iter()
+            .map(|m| m.payload.as_slice())
+            .collect::<Vec<_>>(),
+        vec![
+            b"msg-126".as_slice(),
+            b"msg-127".as_slice(),
+            b"msg-128".as_slice(),
+            b"msg-129".as_slice(),
+        ]
     );
 }
 
@@ -624,9 +642,9 @@ fn startup_tail_partial_replay_keeps_corruption_truncation_safety() {
     assert!(restarted.fetch("events", 130).unwrap().is_none());
 }
 
-/// After any segment full-replays, later **closed non-tail** segments use the same
-/// checkpoint+sparse-index anchor path as tail replay (sparse seek + suffix decode), preserving
-/// fetch visibility for replayed spans (see also `startup_mixed_skip_and_fallback_*`).
+/// When an early segment loses trusted skip (bad index sidecar here), replay uses sparse-anchor
+/// seek like other decode paths; **later closed segments remain eligible for trusted skip** because FETCH
+/// can read skipped ranges from disk (see also `startup_mixed_skip_and_fallback_*`).
 #[test]
 fn startup_closed_must_replay_uses_sparse_seek_after_early_barrier() {
     let dir = temp_data_dir("herbatka_closed_sparse_seek_barrier");
@@ -733,6 +751,20 @@ fn retention_removes_index_sidecars_with_segments() {
         log_files.len(),
         index_files.len(),
         "retained segment files should have matching index sidecars"
+    );
+}
+
+#[test]
+fn startup_tail_trusted_skip_keeps_single_segment_topic_fetchable() {
+    let dir = temp_data_dir("herbatka_tail_trusted_single");
+    let mut broker = Broker::with_data_dir(dir.clone());
+    broker.create_topic("events".into()).unwrap();
+    broker.produce("events", message(b"only")).unwrap();
+    let mut restarted = Broker::with_data_dir(dir);
+    restarted.discover_topics_on_startup().unwrap();
+    assert_eq!(
+        restarted.fetch("events", 0).unwrap().unwrap().payload,
+        b"only".to_vec(),
     );
 }
 

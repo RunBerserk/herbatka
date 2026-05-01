@@ -17,7 +17,7 @@ pub(super) fn create_topic(broker: &mut Broker, topic: String) -> Result<(), Bro
 }
 
 pub(super) fn discover_topics_on_startup(broker: &mut Broker) -> Result<(), BrokerError> {
-    super::startup_discovery::discover_topics_on_startup(broker)
+    super::startup_discovery::discover::discover_topics_on_startup(broker)
 }
 
 pub(super) fn produce(
@@ -116,23 +116,54 @@ pub(super) fn produce(
     Ok(offset)
 }
 
-pub(super) fn fetch<'a>(
-    broker: &'a Broker,
+pub(super) fn fetch(
+    broker: &Broker,
     topic: &str,
     offset: u64,
-) -> Result<Option<&'a Message>, BrokerError> {
+) -> Result<Option<Message>, BrokerError> {
     let state = broker.topics.get(topic).ok_or(BrokerError::UnknownTopic)?;
-    Ok(state.log.read(offset))
+    let exclusive_end = super::segment_fetch::topic_exclusive_end(state);
+    let min_off = super::segment_fetch::topic_min_offset(state);
+
+    if offset >= exclusive_end || offset < min_off {
+        return Ok(None);
+    }
+
+    if let Some(m) = state.log.read(offset) {
+        return Ok(Some(m.clone()));
+    }
+
+    super::segment_fetch::fetch_from_segments(broker, topic, state, offset)
 }
 
-pub(super) fn fetch_batch<'a>(
-    broker: &'a Broker,
+pub(super) fn fetch_batch(
+    broker: &Broker,
     topic: &str,
     offset: u64,
     limit: usize,
-) -> Result<Vec<&'a Message>, BrokerError> {
+) -> Result<Vec<Message>, BrokerError> {
     let state = broker.topics.get(topic).ok_or(BrokerError::UnknownTopic)?;
-    Ok(state.log.read_range(offset, limit))
+    let exclusive_end = super::segment_fetch::topic_exclusive_end(state);
+    let min_off = super::segment_fetch::topic_min_offset(state);
+
+    if limit == 0 || offset >= exclusive_end || offset < min_off {
+        return Ok(Vec::new());
+    }
+
+    let mut out = Vec::with_capacity(limit);
+    let mut cur = offset;
+    let mut collected = 0usize;
+    while collected < limit && cur < exclusive_end {
+        match fetch(broker, topic, cur)? {
+            Some(msg) => {
+                out.push(msg);
+                collected += 1;
+                cur = cur.saturating_add(1);
+            }
+            None => break,
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

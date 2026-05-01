@@ -22,32 +22,13 @@ enum ClosedSkipDecision {
     MustReplay,
 }
 
-fn evaluate_closed_skip_eligibility(
+fn trusted_closed_skip_gate(
     broker: &Broker,
     topic: &str,
     segment: &SegmentMeta,
-    can_metadata_skip: bool,
-    is_tail_segment: bool,
     checkpoint_by_base: &HashMap<u64, &SegmentCheckpoint>,
     counters: &mut FallbackCounters<'_>,
 ) -> ClosedSkipDecision {
-    if is_tail_segment {
-        if can_metadata_skip {
-            counters.bump(FALLBACK_REASON_TAIL_SEGMENT);
-        } else {
-            counters.bump(FALLBACK_REASON_POST_REPLAY_SKIP_DISABLED);
-        }
-        return ClosedSkipDecision::MustReplay;
-    }
-
-    // SkipTrusted advances `Log::base_offset` without appending payloads; FETCH only sees replayed/
-    // appended offsets. Once we take a decoding replay path, downstream closed segments must fully
-    // replay so contiguous history is reflected in memory (broker_persistence regressions rely on this).
-    if !can_metadata_skip {
-        counters.bump(FALLBACK_REASON_POST_REPLAY_SKIP_DISABLED);
-        return ClosedSkipDecision::MustReplay;
-    }
-
     match checkpoint_by_base.get(&segment.base_offset) {
         None => {
             counters.bump(FALLBACK_REASON_MISSING_CHECKPOINT);
@@ -82,6 +63,33 @@ fn evaluate_closed_skip_eligibility(
             }
         },
     }
+}
+
+fn evaluate_closed_skip_eligibility(
+    broker: &Broker,
+    topic: &str,
+    segment: &SegmentMeta,
+    can_tail_trusted_skip: bool,
+    is_tail_segment: bool,
+    checkpoint_by_base: &HashMap<u64, &SegmentCheckpoint>,
+    counters: &mut FallbackCounters<'_>,
+) -> ClosedSkipDecision {
+    if is_tail_segment {
+        if !can_tail_trusted_skip {
+            counters.bump(FALLBACK_REASON_POST_REPLAY_SKIP_DISABLED);
+            return ClosedSkipDecision::MustReplay;
+        }
+        return match trusted_closed_skip_gate(broker, topic, segment, checkpoint_by_base, counters)
+        {
+            ClosedSkipDecision::SkipTrusted => ClosedSkipDecision::SkipTrusted,
+            ClosedSkipDecision::MustReplay => {
+                counters.bump(FALLBACK_REASON_TAIL_SEGMENT);
+                ClosedSkipDecision::MustReplay
+            }
+        };
+    }
+
+    trusted_closed_skip_gate(broker, topic, segment, checkpoint_by_base, counters)
 }
 
 fn replay_segment_with_optional_last_sparse_seek(
@@ -162,7 +170,8 @@ fn persist_startup_checkpoint_best_effort(broker: &Broker, topic: &str, segments
 }
 
 pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicState, BrokerError> {
-    let mut segments = super::discover_segments(broker, topic).map_err(BrokerError::Io)?;
+    let mut segments =
+        super::segment_scan::discover_segments(broker, topic).map_err(BrokerError::Io)?;
     if segments.is_empty() {
         return Ok(TopicState::empty());
     }
@@ -180,10 +189,9 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
 
     let mut log = Log::with_base_offset(segments[0].base_offset);
     let segments_len = segments.len();
-    // After any decoding replay (`MustReplay`), subsequent tail iterations use
-    // `post_replay_skip_disabled` telemetry instead of `tail_segment`; see `evaluate_closed_skip_eligibility`.
-    // Closed non-tail trusted skip relies on checkpoint + index (+ file length) only, not this flag.
-    let mut can_metadata_skip = true;
+    // After any decoding replay (`MustReplay`), the tail stays on full decode/truncate semantics;
+    // closed segments may still skip-on-metadata because FETCH resolves skipped offsets via segment files.
+    let mut can_tail_trusted_skip = true;
     let mut startup_skipped_segments = 0u64;
     let mut startup_replayed_segments = 0u64;
     let mut tail_partial_replay_used = 0u64;
@@ -206,7 +214,7 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
             broker,
             topic,
             segment,
-            can_metadata_skip,
+            can_tail_trusted_skip,
             is_tail_segment,
             &checkpoint_by_base,
             &mut fb,
@@ -248,7 +256,7 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
         segment.message_count = replay.message_count;
         segment.size_bytes = replay.valid_len;
         startup_replayed_segments += 1;
-        can_metadata_skip = false;
+        can_tail_trusted_skip = false;
     }
 
     log_startup_replay_summary(

@@ -6,6 +6,7 @@
 mod checkpoint_io;
 mod public_api;
 mod retention;
+mod segment_fetch;
 mod startup_discovery;
 mod topic_paths;
 
@@ -97,7 +98,7 @@ impl Broker {
         public_api::produce(self, topic, message)
     }
 
-    pub fn fetch(&self, topic: &str, offset: u64) -> Result<Option<&Message>, BrokerError> {
+    pub fn fetch(&self, topic: &str, offset: u64) -> Result<Option<Message>, BrokerError> {
         public_api::fetch(self, topic, offset)
     }
 
@@ -106,7 +107,7 @@ impl Broker {
         topic: &str,
         offset: u64,
         limit: usize,
-    ) -> Result<Vec<&Message>, BrokerError> {
+    ) -> Result<Vec<Message>, BrokerError> {
         public_api::fetch_batch(self, topic, offset, limit)
     }
 }
@@ -114,7 +115,7 @@ impl Broker {
 impl Broker {
     // ---- Startup loading/discovery ----
     fn load_topic_state(&self, topic: &str) -> Result<TopicState, BrokerError> {
-        startup_discovery::load_topic_state(self, topic)
+        startup_discovery::discover::load_topic_state(self, topic)
     }
 }
 

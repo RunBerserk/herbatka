@@ -5,6 +5,7 @@
 
 use std::{collections::HashMap, time::SystemTime};
 
+#[derive(Clone)]
 pub struct Message {
     /// Optional key for partitioning / ordering (e.g. car_id)
     pub key: Option<Vec<u8>>,
