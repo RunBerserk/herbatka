@@ -71,11 +71,13 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - Tail-segment optimization  : evaluate index-assisted seek/partial replay without weakening corruption safety.
  - refactor startup_discovery
  - CI guardrails yet (`fmt`/`clippy`/`test` in pipeline), increasing regression risk.
+ - Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
 ## In Progress
 
-- Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
+
 
 ## Next Up
+update documentation for core,log
 
 
 
