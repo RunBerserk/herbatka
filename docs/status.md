@@ -68,15 +68,14 @@ Persistence and recovery baseline -> moving toward external access (TCP)
     [x]Keep run_simulation as orchestration    
     [x]Run cargo test --lib / relevant tests after each step
  - Tail-segment optimization  : evaluate index-assisted seek/partial replay without weakening corruption safety.
-
+ - refactor startup_discovery
+ - CI guardrails yet (`fmt`/`clippy`/`test` in pipeline), increasing regression risk.
 ## In Progress
 
- refactor startup_discovery, 
  
 
 ## Next Up
 
-evaluate more refactorings
 
 
 ## Later (TODO, not now)
@@ -94,7 +93,7 @@ evaluate more refactorings
 
 - Startup replay still decodes tail segment and fallback segments; sparse index helps for closed segments but deeper skip-paths are still needed at larger scales.
 - Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients.
-- No CI guardrails yet (`fmt`/`clippy`/`test` in pipeline), increasing regression risk.
+ 
 - TCP text protocol is MVP-only; no schema/framing guarantees for long-term interoperability.
 
 ## Notes
