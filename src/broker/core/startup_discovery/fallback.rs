@@ -1,3 +1,6 @@
+//! Startup replay bookkeeping: canonical fallback reason strings and a structured summary log after
+//! topic load (`log_startup_replay_summary`).
+
 use std::collections::HashMap;
 
 use tracing::info;

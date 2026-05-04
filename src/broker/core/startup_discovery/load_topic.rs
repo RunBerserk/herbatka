@@ -1,3 +1,6 @@
+//! Restore one topic’s `TopicState` from on-disk segments: decide trusted closed-segment skip
+//! vs replay, apply tail handling, sparse-index hints, then materialize offsets into the log.
+
 use std::collections::HashMap;
 use std::io;
 

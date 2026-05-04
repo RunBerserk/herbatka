@@ -1,3 +1,6 @@
+//! Filesystem scans for startup: topic directory names under the broker data dir and segment file
+//! lists per topic (`SegmentMeta`), ordered for replay.
+
 use std::collections::BTreeSet;
 use std::fs::read_dir;
 use std::io;
