@@ -1,6 +1,8 @@
-//! Fleet-style simulator: sends JSON events on framed wire v1 (handshake then length-prefixed `PRODUCE` frames).
+//! Fleet-style simulator: sends telemetry-shaped events on framed wire v1 (handshake then `PRODUCE` frames).
+//! Default payload is JSON; **`--payload-format protobuf`** emits `FleetTelemetryEvent` protobuf
+//! (`herbatka::generated_schemas`) — align the **`--topic`** with consumers (for example `*.telemetry`).
 //! Usage:
-//!   simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--load-profile <constant|ramp|spike>] [--seed <u64>] [--quiet]
+//!   simulator ... [--payload-format json|protobuf] [--scenario ...] [--load-profile ...] [--seed <u64>] [--quiet]
 
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -23,9 +25,16 @@ use movement::{
 use tracing::error;
 use transport::connect_with_retry;
 
-const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--load-profile <constant|ramp|spike>] [--seed <u64>] [--quiet]";
+const USAGE: &str = "usage: simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--payload-format json|protobuf] [--scenario <steady|burst|idle|reconnect>] [--load-profile <constant|ramp|spike>] [--seed <u64>] [--quiet]";
 const DEFAULT_SEED: u64 = 0xC0FFEE1234;
 const PROGRESS_EVERY_SECS: u64 = 5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum PayloadFormat {
+    #[default]
+    Json,
+    Protobuf,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SimulatorArgs {
@@ -34,6 +43,7 @@ struct SimulatorArgs {
     vehicles: u64,
     rate: u64,
     duration_secs: u64,
+    payload_format: PayloadFormat,
     scenario: ScenarioKind,
     load_profile: LoadProfileKind,
     seed: Option<u64>,
@@ -312,6 +322,28 @@ fn effective_interval(base_rate: u64, cadence: Cadence, profile_multiplier: f64)
     Duration::from_secs_f64(1.0 / effective_rate)
 }
 
+fn build_event_telemetry_proto(
+    seq: u64,
+    vehicle_id: u64,
+    speed: u64,
+    snapshot: MovementSnapshot,
+) -> Result<Vec<u8>, String> {
+    use herbatka::generated_schemas::FleetTelemetryEvent;
+    use prost::Message as ProstEncode;
+    let ts_ms = 1_700_000_000_000u64.saturating_add(seq.saturating_mul(100));
+    let ev = FleetTelemetryEvent {
+        vehicle_id: format!("veh-{vehicle_id}"),
+        ts_ms,
+        speed,
+        lat: snapshot.lat,
+        lon: snapshot.lon,
+    };
+    let mut buf = Vec::new();
+    ev.encode(&mut buf)
+        .map_err(|e| format!("telemetry protobuf encode failed: {e}"))?;
+    Ok(buf)
+}
+
 fn build_event_payload(
     seq: u64,
     vehicle_id: u64,
@@ -327,14 +359,14 @@ fn build_event_payload(
     )
 }
 
-fn build_produce_frame(topic: &str, payload: &str) -> Result<Vec<u8>, String> {
-    transport::build_produce_frame(topic, payload)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use movement::{BASE_CENTER_LON, WALL_MAX_LAT, WALL_MAX_LON, WALL_MIN_LAT, WALL_MIN_LON};
+
+    fn build_produce_frame(topic: &str, payload: &str) -> Result<Vec<u8>, String> {
+        transport::build_produce_frame(topic, payload)
+    }
 
     #[test]
     fn parse_args_from_accepts_valid_flags() {
@@ -367,6 +399,7 @@ mod tests {
                 vehicles: 3,
                 rate: 10,
                 duration_secs: 5,
+                payload_format: PayloadFormat::Json,
                 scenario: ScenarioKind::Burst,
                 load_profile: LoadProfileKind::Ramp,
                 seed: Some(7),
@@ -410,7 +443,66 @@ mod tests {
         assert_eq!(parsed.scenario, ScenarioKind::Steady);
         assert_eq!(parsed.load_profile, LoadProfileKind::Constant);
         assert_eq!(parsed.seed, None);
+        assert_eq!(parsed.payload_format, PayloadFormat::Json);
         assert!(!parsed.quiet);
+    }
+
+    #[test]
+    fn parse_args_from_accepts_payload_format_protobuf() {
+        let args = vec![
+            "--addr".to_string(),
+            "127.0.0.1:7000".to_string(),
+            "--topic".to_string(),
+            "fleet1.telemetry".to_string(),
+            "--vehicles".to_string(),
+            "2".to_string(),
+            "--rate".to_string(),
+            "10".to_string(),
+            "--duration-secs".to_string(),
+            "5".to_string(),
+            "--payload-format".to_string(),
+            "protobuf".to_string(),
+        ];
+        let parsed = cli::parse_args_from(&args).expect("parse should succeed");
+        assert_eq!(parsed.payload_format, PayloadFormat::Protobuf);
+    }
+
+    #[test]
+    fn parse_args_from_rejects_invalid_payload_format() {
+        let args = vec![
+            "--addr".to_string(),
+            "127.0.0.1:7000".to_string(),
+            "--topic".to_string(),
+            "events".to_string(),
+            "--vehicles".to_string(),
+            "3".to_string(),
+            "--rate".to_string(),
+            "10".to_string(),
+            "--duration-secs".to_string(),
+            "5".to_string(),
+            "--payload-format".to_string(),
+            "xml".to_string(),
+        ];
+        assert!(cli::parse_args_from(&args).is_err());
+    }
+
+    #[test]
+    fn telemetry_proto_matches_json_field_semantics_roundtrip_decode() {
+        use herbatka::generated_schemas::FleetTelemetryEvent;
+        use prost::Message as ProstMsg;
+        let snap = MovementSnapshot {
+            lat: 52.000123,
+            lon: 21.000456,
+        };
+        let json_line = build_event_payload(9, 2, 88, snap);
+        let bin = build_event_telemetry_proto(9, 2, 88, snap).expect("proto encode");
+        let ev = FleetTelemetryEvent::decode(&*bin).expect("proto decode");
+        assert!(json_line.contains("\"vehicle_id\":\"veh-2\""));
+        assert!(json_line.contains("\"speed\":88"));
+        assert_eq!(ev.vehicle_id, "veh-2");
+        assert_eq!(ev.speed, 88);
+        assert_eq!(ev.lat, snap.lat);
+        assert_eq!(ev.lon, snap.lon);
     }
 
     #[test]
@@ -474,7 +566,7 @@ mod tests {
     fn produce_frame_allows_newlines_in_json() {
         let f = build_produce_frame("events", "a\nb").expect("frame");
         assert_eq!(
-            f.get(0).copied(),
+            f.first().copied(),
             Some(herbatka::tcp::frame::WIRE_VERSION_V1)
         );
         assert_eq!(f.get(1).copied(), Some(herbatka::tcp::frame::OP_PRODUCE));

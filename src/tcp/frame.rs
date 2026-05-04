@@ -499,7 +499,7 @@ mod tests {
     #[test]
     fn decode_oversize_declared_payload() {
         let mut hdr = vec![1u8, 1, 0, 0, 0x00, 0x00, 0x00, 0x01];
-        hdr.extend(std::iter::repeat(0u8).take(100));
+        hdr.extend(std::iter::repeat_n(0u8, 100));
         assert!(matches!(
             decode_client_frame(&hdr),
             Err(WireError::Decode(_)) | Err(WireError::Truncated)

@@ -1,6 +1,6 @@
 use std::env;
 
-use super::{LoadProfileKind, ScenarioKind, SimulatorArgs, USAGE};
+use super::{LoadProfileKind, PayloadFormat, ScenarioKind, SimulatorArgs, USAGE};
 
 pub(super) fn parse_args() -> Result<SimulatorArgs, String> {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -21,6 +21,7 @@ pub(super) fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> 
     let mut load_profile = LoadProfileKind::Constant;
     let mut seed: Option<u64> = None;
     let mut quiet = false;
+    let mut payload_format = PayloadFormat::default();
 
     let mut i = 0usize;
     while i < args.len() {
@@ -58,6 +59,17 @@ pub(super) fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> 
                         .map_err(|_| "--seed must be a non-negative integer".to_string())?,
                 );
             }
+            "--payload-format" => {
+                payload_format = match value.as_str() {
+                    "json" => PayloadFormat::Json,
+                    "protobuf" => PayloadFormat::Protobuf,
+                    other => {
+                        return Err(format!(
+                            "payload-format must be json or protobuf, got {other:?}\n{USAGE}"
+                        ));
+                    }
+                };
+            }
             _ => return Err(format!("unknown flag: {flag}\n{USAGE}")),
         }
         i += 2;
@@ -69,6 +81,7 @@ pub(super) fn parse_args_from(args: &[String]) -> Result<SimulatorArgs, String> 
         vehicles: vehicles.ok_or_else(|| format!("missing --vehicles\n{USAGE}"))?,
         rate: rate.ok_or_else(|| format!("missing --rate\n{USAGE}"))?,
         duration_secs: duration_secs.ok_or_else(|| format!("missing --duration-secs\n{USAGE}"))?,
+        payload_format,
         scenario,
         load_profile,
         seed,

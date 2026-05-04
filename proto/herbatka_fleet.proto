@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package herbatka.fleet;
+
+// Produce body for topics like "<scope>.heartbeat" when using Protobuf.
+message FleetHeartbeat {
+  string sender_id = 1;
+  uint64 ts_ms = 2;
+}
+
+// Produce body for topics like "<scope>.control"; illustrative minimal envelope.
+message FleetControlEnvelope {
+  string command = 1;
+  string target_vehicle_id = 2;
+}
+
+// Produce body for topics like "<scope>.telemetry".
+// Matches MVP JSON FleetEvent (vehicle_id, ts_ms, speed, lat, lon).
+message FleetTelemetryEvent {
+  string vehicle_id = 1;
+  uint64 ts_ms = 2;
+  uint64 speed = 3;
+  double lat = 4;
+  double lon = 5;
+}

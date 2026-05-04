@@ -37,12 +37,15 @@ pub(super) fn retry_backoff(attempt: u32) -> Duration {
 }
 
 pub(super) fn build_produce_frame(topic: &str, payload: &str) -> Result<Vec<u8>, String> {
+    build_produce_frame_bytes(topic, payload.as_bytes())
+}
+
+pub(super) fn build_produce_frame_bytes(topic: &str, body: &[u8]) -> Result<Vec<u8>, String> {
     if topic.trim().is_empty() {
         return Err("topic must not be empty".to_string());
     }
-    if payload.is_empty() {
+    if body.is_empty() {
         return Err("payload must not be empty".to_string());
     }
-    use herbatka::tcp::frame::encode_produce;
-    encode_produce(topic, payload.as_bytes()).map_err(|e| e.to_string())
+    herbatka::tcp::frame::encode_produce(topic, body).map_err(|e| e.to_string())
 }

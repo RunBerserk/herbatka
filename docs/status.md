@@ -17,6 +17,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Minimal TCP interface (server + basic protocol)
 - Define simple command format (PRODUCE / FETCH); **framed wire v1** with handshake (`HERBATKA WIRE/1`) + legacy first-line newline mode (`docs/tcp-wire-protocol.md`)
 - Three logical channels (heartbeat / control / telemetry) as **topic naming only** — see [logical-channels.md](logical-channels.md); broker unchanged
+- Canonical **Protobuf** shapes for those lanes (`proto/herbatka_fleet.proto`, `herbatka::generated_schemas`); payload bytes inside framed bodies; default demos stay JSON on topic `events`
 - First manual end-to-end test (e.g. via netcat)
 - Simple CLI producer (send messages over TCP)
 - Simple CLI consumer (fetch loop)
@@ -80,22 +81,17 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 ## Next Up
 
 
-- Optional: schema per channel (e.g. Protobuf) inside framed payloads
-
-
 
 ## Later (TODO, not now)
  
-- Protobuf encoding
+- **Protobuf on the wire** (replacing framed layout with protobuf RPC) — not the same as payload protobuf inside today’s frame body; only if a new protocol version is desired
 - QUIC transport
 - Bevy UI integration?
 - Real IoT client (Ox64)
-- scripts, skills folder
+-  skills folder
 - ui dark mode/bright mode
 
 ## Known Gaps / Risks
-
-
 
 - Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients.
 - CI: GitHub Actions workflow runs `fmt` / `clippy -D warnings` / `test` on push to `main`/`master`.

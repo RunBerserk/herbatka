@@ -4,6 +4,7 @@
 
 pub mod broker;
 pub mod config;
+pub mod generated_schemas;
 pub mod log;
 pub mod observability;
 pub mod tcp;

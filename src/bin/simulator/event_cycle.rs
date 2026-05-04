@@ -6,9 +6,11 @@ use herbatka::tcp::command::Response;
 use herbatka::tcp::frame::{decode_response_frame, read_frame};
 
 use super::{
-    DeterministicRng, SimulatorArgs, Summary, VehicleMotionState, advance_vehicle_with_walls,
-    build_event_payload, build_produce_frame, speed_for_event,
+    DeterministicRng, PayloadFormat, SimulatorArgs, Summary, VehicleMotionState,
+    advance_vehicle_with_walls, build_event_payload, build_event_telemetry_proto, speed_for_event,
 };
+
+use super::transport;
 
 pub(super) struct EventIo<'a> {
     pub stream: &'a mut TcpStream,
@@ -32,8 +34,16 @@ pub(super) fn execute_event_cycle(
         .unwrap_or(interval);
     vehicle.last_update_at = tick_now;
     let snapshot = advance_vehicle_with_walls(vehicle, speed, dt, vehicle_id, rng);
-    let payload = build_event_payload(seq, vehicle_id, speed, snapshot);
-    let frame = build_produce_frame(&args.topic, &payload)?;
+    let frame = match args.payload_format {
+        PayloadFormat::Json => {
+            let payload = build_event_payload(seq, vehicle_id, speed, snapshot);
+            transport::build_produce_frame(&args.topic, &payload)?
+        }
+        PayloadFormat::Protobuf => {
+            let bytes = build_event_telemetry_proto(seq, vehicle_id, speed, snapshot)?;
+            transport::build_produce_frame_bytes(&args.topic, &bytes)?
+        }
+    };
     io.stream.write_all(&frame).map_err(|e| {
         summary.produced_err += 1;
         summary.write_errors += 1;

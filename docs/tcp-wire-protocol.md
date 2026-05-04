@@ -90,6 +90,6 @@ Responses use the same 8-byte envelope as requests.
 
 ## Compatibility and future work
 
-- **Protobuf** (or similar) may be embedded in Produce `body` / Message `body` without changing this envelope once clients agree on serialization.
+- **Protobuf** (or similar) may be embedded in Produce `body` / Message `body` without changing this envelope once clients agree on serialization. Example message layouts keyed by logical topic suffix (**heartbeat / control / telemetry**) and generated Rust bindings live alongside the crate under `proto/` and [`generated_schemas.rs`](../src/generated_schemas.rs); see [logical-channels.md — Protobuf payloads](logical-channels.md#protobuf-payloads-optional).
 - **Legacy mode** remains available for debugging and trivial clients (`telnet`/netcat style).
 - Negotiation rule: handshake line is deterministic; strings `PRODUCE` and `FETCH` do **not** collide with `HERBATKA WIRE/1`.
