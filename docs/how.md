@@ -8,6 +8,8 @@ High-level strategy.
 ## Architecture
 Main components and their responsibilities.
 
+Applications may use **three logical channels** (heartbeat, control, telemetry) as **distinct topic names** only; the broker does not interpret channel type. See [Logical channels](logical-channels.md).
+
 ### Source of truth and rebuild
 
 On startup, durable **segment `.log` files** are the source of truth. **`.checkpoint`** and **`.idx`** sidecars are optional accelerators: when present, valid, and compatible with segment metadata, closed segments can be skipped without a full decode replay; otherwise the broker falls back to replay. The **in-memory `Log`** is the materialized view used for fast reads after recovery. A **partial tail** (e.g. `UnexpectedEof`) is truncated to the last complete record before continuing.

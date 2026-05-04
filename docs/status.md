@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-05-01
+Last updated: 2026-05-04
 
 ## Current Phase
 
@@ -16,6 +16,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Integration tests for persistence + recovery
 - Minimal TCP interface (server + basic protocol)
 - Define simple command format (PRODUCE / FETCH); **framed wire v1** with handshake (`HERBATKA WIRE/1`) + legacy first-line newline mode (`docs/tcp-wire-protocol.md`)
+- Three logical channels (heartbeat / control / telemetry) as **topic naming only** — see [logical-channels.md](logical-channels.md); broker unchanged
 - First manual end-to-end test (e.g. via netcat)
 - Simple CLI producer (send messages over TCP)
 - Simple CLI consumer (fetch loop)
@@ -72,22 +73,18 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - refactor startup_discovery
  - CI guardrails yet (`fmt`/`clippy`/`test` in pipeline), increasing regression risk.
  - Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
-## In Progress
-
-
 
 ## Next Up
 
+- Per-topic retention / quotas (if we need tight control-plane caps vs telemetry)
+  - Design per-topic limits (or prefix rules) vs global `max_topic_bytes`
+  - Extend config + retention + tests
+- Optional: schema per channel (e.g. Protobuf) inside framed payloads
 
 ## Later (TODO, not now)
  
 - Protobuf encoding
 - QUIC transport
-- 3 channel arch for messages
-  heartbeat → periodic
-  control → command/response
-  telemetry → event-driven, full payload
-
 - Bevy UI integration?
 - Real IoT client (Ox64)
 - scripts, skills folder

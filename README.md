@@ -13,6 +13,7 @@ A lightweight event streaming broker inspired by Apache Kafka, focused on simpli
 - [Simulator Guide](docs/simulator.md) - simulator flags, counters, and troubleshooting
 - [Test Harness](docs/test-harness.md) - deterministic local smoke flow
 - [TCP wire protocol](docs/tcp-wire-protocol.md) - handshake, framed v1, and legacy line mode
+- [Logical channels](docs/logical-channels.md) - heartbeat / control / telemetry via topic naming (broker-agnostic convention)
 
 ## Architecture Overview
 
