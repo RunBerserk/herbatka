@@ -198,6 +198,7 @@ mod tests {
             segment_max_bytes: 80,
             max_topic_bytes: None,
             fsync_policy: FsyncPolicy::Never,
+            ..BrokerConfig::default()
         };
         Broker::with_config(cfg)
     }

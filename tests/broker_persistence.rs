@@ -150,6 +150,7 @@ fn restart_replays_multiple_segments_in_order() {
         segment_max_bytes: 80,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -174,6 +175,7 @@ fn segment_rollover_creates_multiple_files() {
         segment_max_bytes: 80,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg);
     broker.create_topic("events".into()).unwrap();
@@ -195,6 +197,7 @@ fn retention_evicts_old_offsets_when_max_topic_bytes_is_set() {
         segment_max_bytes: 80,
         max_topic_bytes: Some(140),
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg);
     broker.create_topic("events".into()).unwrap();
@@ -322,6 +325,7 @@ fn checkpoint_file_is_written_and_restart_still_recovers() {
         segment_max_bytes: 80,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -350,6 +354,7 @@ fn stale_or_invalid_checkpoint_falls_back_to_safe_replay() {
         segment_max_bytes: 80,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -384,6 +389,7 @@ fn sparse_index_sidecar_is_created() {
         segment_max_bytes: 80,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg);
     broker.create_topic("events".into()).unwrap();
@@ -404,6 +410,7 @@ fn startup_skips_all_eligible_closed_segments() {
         segment_max_bytes: 80,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -434,6 +441,7 @@ fn startup_mixed_skip_and_fallback_keeps_replayed_offsets_visible() {
         segment_max_bytes: 80,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -466,6 +474,7 @@ fn startup_tail_recovery_still_truncates_when_closed_segments_are_skipped() {
         segment_max_bytes: 80,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -512,6 +521,7 @@ fn startup_tail_partial_replay_uses_index_hint_and_preserves_offsets() {
         segment_max_bytes: 1_000_000,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -573,6 +583,7 @@ fn startup_tail_partial_replay_falls_back_when_checkpoint_missing() {
         segment_max_bytes: 1_000_000,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -607,6 +618,7 @@ fn startup_tail_partial_replay_keeps_corruption_truncation_safety() {
         segment_max_bytes: 1_000_000,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -653,6 +665,7 @@ fn startup_closed_must_replay_uses_sparse_seek_after_early_barrier() {
         segment_max_bytes: 2000,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -697,6 +710,7 @@ fn corrupt_or_missing_sparse_index_falls_back_safely() {
         segment_max_bytes: 80,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
@@ -737,6 +751,7 @@ fn retention_removes_index_sidecars_with_segments() {
         segment_max_bytes: 80,
         max_topic_bytes: Some(140),
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg);
     broker.create_topic("events".into()).unwrap();
@@ -776,6 +791,7 @@ fn startup_large_dataset_restart_profile() {
         segment_max_bytes: 4 * 1024,
         max_topic_bytes: None,
         fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
     };
     let mut broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();

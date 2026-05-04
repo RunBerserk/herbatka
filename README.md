@@ -27,9 +27,9 @@ Durability behavior is controlled by `fsync_policy` in config (`always` by defau
 
 ## TCP quickstart
 
-The `herbatka` binary runs the broker and listens for TCP clients on `127.0.0.1:7000`.
+The broker listens at `listen_addr` in `herbatka.toml` (default `127.0.0.1:7000`).
 
-Broker startup reads `herbatka.toml` from the project root by default.
+Broker startup loads `herbatka.toml` from the **current working directory** by default.
 You can override config path with `HERBATKA_CONFIG=/path/to/file.toml`.
 
 ### Terminal 1 (broker)

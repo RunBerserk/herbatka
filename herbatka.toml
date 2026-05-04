@@ -3,3 +3,4 @@ segment_max_bytes = 1048576
 # Set to an integer byte limit to enable retention.
 # max_topic_bytes = 10485760
 fsync_policy = "always"
+listen_addr = "127.0.0.1:7000"

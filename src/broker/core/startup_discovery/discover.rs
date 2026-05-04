@@ -65,6 +65,7 @@ mod tests {
             segment_max_bytes: 80,
             max_topic_bytes: None,
             fsync_policy: FsyncPolicy::Never,
+            ..BrokerConfig::default()
         };
         crate::broker::core::Broker::with_config(cfg)
     }

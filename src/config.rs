@@ -1,11 +1,13 @@
 //! Broker configuration model and TOML loader.
-//! Defines runtime settings for data directory, segmentation, retention, and fsync mode.
+//! Defines runtime settings for data directory, segmentation, retention, fsync mode, and TCP bind.
 //! Applies defaults and validates user-provided values before startup.
 
 use serde::Deserialize;
 use std::fs;
 use std::io;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -20,6 +22,8 @@ pub struct BrokerConfig {
     pub segment_max_bytes: u64,
     pub max_topic_bytes: Option<u64>,
     pub fsync_policy: FsyncPolicy,
+    /// `"host:port"` accepted by [`SocketAddr`]; used by `herbatka` binary only (library tests ignore).
+    pub listen_addr: String,
 }
 
 impl Default for BrokerConfig {
@@ -29,6 +33,7 @@ impl Default for BrokerConfig {
             segment_max_bytes: 1024 * 1024,
             max_topic_bytes: None,
             fsync_policy: FsyncPolicy::Always,
+            listen_addr: "127.0.0.1:7000".to_string(),
         }
     }
 }
@@ -39,6 +44,7 @@ struct RawBrokerConfig {
     segment_max_bytes: Option<u64>,
     max_topic_bytes: Option<u64>,
     fsync_policy: Option<FsyncPolicy>,
+    listen_addr: Option<String>,
 }
 
 pub fn load_broker_config(path: &Path) -> io::Result<BrokerConfig> {
@@ -57,6 +63,9 @@ pub fn load_broker_config(path: &Path) -> io::Result<BrokerConfig> {
     }
     if let Some(fsync_policy) = parsed.fsync_policy {
         config.fsync_policy = fsync_policy;
+    }
+    if let Some(listen_addr) = parsed.listen_addr {
+        config.listen_addr = listen_addr.trim().to_string();
     }
     validate_broker_config(&config)?;
     Ok(config)
@@ -77,6 +86,19 @@ pub fn validate_broker_config(config: &BrokerConfig) -> io::Result<()> {
             "max_topic_bytes must be > 0 when set",
         ));
     }
+    let trimmed = config.listen_addr.trim();
+    if trimmed.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "listen_addr must not be empty",
+        ));
+    }
+    SocketAddr::from_str(trimmed).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("listen_addr must be a valid socket address (e.g. 127.0.0.1:7000): {e}"),
+        )
+    })?;
     Ok(())
 }
 
@@ -110,6 +132,7 @@ data_dir = "tmp/data"
 segment_max_bytes = 8192
 max_topic_bytes = 65536
 fsync_policy = "never"
+listen_addr = "0.0.0.0:9092"
 "#,
         )
         .unwrap();
@@ -119,12 +142,22 @@ fsync_policy = "never"
         assert_eq!(cfg.segment_max_bytes, 8192);
         assert_eq!(cfg.max_topic_bytes, Some(65536));
         assert_eq!(cfg.fsync_policy, FsyncPolicy::Never);
+        assert_eq!(cfg.listen_addr, "0.0.0.0:9092");
     }
 
     #[test]
     fn invalid_segment_size_is_rejected() {
         let cfg = BrokerConfig {
             segment_max_bytes: 0,
+            ..BrokerConfig::default()
+        };
+        assert!(validate_broker_config(&cfg).is_err());
+    }
+
+    #[test]
+    fn invalid_listen_addr_is_rejected() {
+        let cfg = BrokerConfig {
+            listen_addr: "not-a-socket-address".into(),
             ..BrokerConfig::default()
         };
         assert!(validate_broker_config(&cfg).is_err());

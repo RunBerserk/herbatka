@@ -77,8 +77,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 
 
 ## Next Up
-update documentation for core,log
-
+- update documentation for core,log
 
 
 ## Later (TODO, not now)

@@ -62,6 +62,7 @@ mod tests {
             segment_max_bytes: 80,
             max_topic_bytes: Some(140),
             fsync_policy: FsyncPolicy::Never,
+            ..BrokerConfig::default()
         };
         let mut broker = Broker::with_config(cfg);
         broker.create_topic("events".into()).unwrap();
