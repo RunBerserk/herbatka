@@ -8,6 +8,14 @@ High-level strategy.
 ## Architecture
 Main components and their responsibilities.
 
+### Source of truth and rebuild
+
+On startup, durable **segment `.log` files** are the source of truth. **`.checkpoint`** and **`.idx`** sidecars are optional accelerators: when present, valid, and compatible with segment metadata, closed segments can be skipped without a full decode replay; otherwise the broker falls back to replay. The **in-memory `Log`** is the materialized view used for fast reads after recovery. A **partial tail** (e.g. `UnexpectedEof`) is truncated to the last complete record before continuing.
+
+![Source of truth and rebuild flow](../assets/diagrams/svg/source-of-truth-rebuild.svg)
+
+- Mermaid source: `../assets/diagrams/mmd/source-of-truth-rebuild.mmd`
+
 ### Request flow
 
 `PRODUCE` and `FETCH` processing from client through TCP server/protocol to broker.

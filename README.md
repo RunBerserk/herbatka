@@ -17,6 +17,12 @@ A lightweight event streaming broker inspired by Apache Kafka, focused on simpli
 
 ![Herbatka architecture overview](assets/diagrams/svg/architecture-overview.svg)
 
+## Source of truth and rebuild
+
+Segment files on disk are the durable record of events. Checkpoint and sparse index files only speed up or guide startup; the in-memory `Log` is rebuilt (by replay or safe skip) before the broker serves traffic. More detail in [How](docs/how.md#source-of-truth-and-rebuild).
+
+![Source of truth and rebuild](assets/diagrams/svg/source-of-truth-rebuild.svg)
+
 ## Produce path
 
 On `produce`, the broker appends to the active topic segment on disk first, then to the in-memory `Log`.

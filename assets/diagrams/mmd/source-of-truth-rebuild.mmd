@@ -1,0 +1,20 @@
+flowchart TD
+    subgraph disk["On disk — durable truth"]
+        S["Segment .log files"]
+        C[".checkpoint"]
+        I["Sparse index .idx"]
+    end
+
+    subgraph mem["RAM — materialized for reads"]
+        L["In-memory Log"]
+    end
+
+    A[Broker startup] --> B[Discover segments + load topic state]
+    S --> B
+    C -.->|optional accelerator| B
+    I -.->|optional accelerator| B
+    B --> R{Per-segment startup}
+    R -->|decode replay| L
+    R -->|trusted skip closed segments| L
+    R -->|partial tail UnexpectedEof| T[Truncate to last valid record]
+    T --> L
