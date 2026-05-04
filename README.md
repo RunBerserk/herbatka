@@ -15,6 +15,16 @@ A lightweight event streaming broker inspired by Apache Kafka, focused on simpli
 - [TCP wire protocol](docs/tcp-wire-protocol.md) - handshake, framed v1, and legacy line mode
 - [Logical channels](docs/logical-channels.md) - heartbeat / control / telemetry via topic naming (broker-agnostic convention)
 
+## Logical channels diagrams
+
+Convention: three **topic names** per scope (`<scope>.heartbeat`, `.control`, `.telemetry`); the broker stores opaque bytes only. Detail: [Logical channels](docs/logical-channels.md).
+
+![Logical channels: one scope, three topics, broker sees strings plus bytes](assets/diagrams/svg/logical-channels-topics.svg)
+
+![Logical channels: producers, lanes by suffix, consumers agree decode](assets/diagrams/svg/logical-channels-lanes.svg)
+
+Mermaid sources (regenerate SVG with `@mermaid-js/mermaid-cli`): [`logical-channels-topics.mmd`](assets/diagrams/mmd/logical-channels-topics.mmd), [`logical-channels-lanes.mmd`](assets/diagrams/mmd/logical-channels-lanes.mmd).
+
 ## Architecture Overview
 
 ![Herbatka architecture overview](assets/diagrams/svg/architecture-overview.svg)

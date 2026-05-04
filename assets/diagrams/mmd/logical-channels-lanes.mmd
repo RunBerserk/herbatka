@@ -1,0 +1,19 @@
+flowchart LR
+    subgraph prod [Producers]
+        Ph[Heartbeat sender]
+        Pc[Control sender]
+        Pt[Telemetry sender]
+    end
+    subgraph lanes [Logical lanes topic suffix]
+        Lh["heartbeat: liveness cadence"]
+        Lc["control: commands acks critical"]
+        Lt["telemetry: full event data"]
+    end
+    subgraph cons [Consumers agreed schema]
+        Uh["Decode e.g. FleetHeartbeat"]
+        Uc["Decode e.g. FleetControlEnvelope"]
+        Ut["Decode e.g. FleetTelemetryEvent"]
+    end
+    Ph --> Lh --> Uh
+    Pc --> Lc --> Uc
+    Pt --> Lt --> Ut

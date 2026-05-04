@@ -1,0 +1,18 @@
+flowchart TB
+    subgraph scopeGrp [Scope]
+        scopeNode["Stable slice e.g. acme.prod or fleet1"]
+    end
+    subgraph topicGrp [Three topic names same scope]
+        hb["scope.heartbeat"]
+        ctrl["scope.control"]
+        tel["scope.telemetry"]
+    end
+    subgraph brokerGrp [What the broker stores]
+        brokerNode["Full topic string plus opaque payload bytes"]
+    end
+    scopeNode --> hb
+    scopeNode --> ctrl
+    scopeNode --> tel
+    hb --> brokerNode
+    ctrl --> brokerNode
+    tel --> brokerNode

@@ -2,6 +2,14 @@
 
 Applications can treat Herbatka as **three logical lanes**—**heartbeat**, **control**, and **telemetry**—without any broker API for “channel.” The broker only knows **topic names** and **opaque payloads**; semantics are a **convention** between producers and consumers (fleet, IoT, or any other domain).
 
+## Diagrams
+
+Sources (Mermaid): [`logical-channels-topics.mmd`](../assets/diagrams/mmd/logical-channels-topics.mmd), [`logical-channels-lanes.mmd`](../assets/diagrams/mmd/logical-channels-lanes.mmd). Render to SVG with `@mermaid-js/mermaid-cli` next to other diagrams under `assets/diagrams/`.
+
+![One scope splits into three topic strings; broker stores opaque payloads](../assets/diagrams/svg/logical-channels-topics.svg)
+
+![Producers pick a lane by topic suffix; consumers decode using an agreed schema](../assets/diagrams/svg/logical-channels-lanes.svg)
+
 ## Lanes (intent)
 
 | Lane | Role |
