@@ -1,4 +1,8 @@
 use herbatka::broker::core::Broker;
+use herbatka::tcp::command::Response;
+use herbatka::tcp::frame::{
+    HANDSHAKE_CLIENT_V1, decode_response_frame, encode_fetch, encode_produce, read_frame,
+};
 use herbatka::tcp::server::handle_client;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -124,4 +128,54 @@ fn tcp_produce_multi_then_fetch_drain_in_order() {
     drop(reader);
     drop(client);
     server_thread.join().expect("server thread should join");
+}
+
+#[test]
+fn tcp_framed_handshake_produce_fetch_roundtrip() {
+    let dir = tcp_test_dir("framed");
+    let broker = Arc::new(Mutex::new(Broker::with_data_dir(dir)));
+    let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
+
+    let mut client = TcpStream::connect(addr).expect("connect");
+    let mut reader = BufReader::new(client.try_clone().expect("clone"));
+
+    client
+        .write_all(HANDSHAKE_CLIENT_V1)
+        .expect("handshake write");
+    client.flush().expect("flush handshake");
+    let mut ack = String::new();
+    reader.read_line(&mut ack).expect("ack read");
+    assert_eq!(
+        ack.trim_end_matches(['\r', '\n']),
+        "HERBATKA OK/1",
+        "unexpected ack: {ack:?}"
+    );
+
+    let p_frame = encode_produce("ft", b"\0blob").unwrap();
+    client.write_all(&p_frame).expect("produce");
+    client.flush().expect("flush produce");
+    let resp = read_frame(&mut reader).expect("produce response");
+    assert_eq!(decode_response_frame(&resp).unwrap(), Response::OkOffset(0));
+
+    let f_frame = encode_fetch("ft", 0).unwrap();
+    client.write_all(&f_frame).expect("fetch");
+    client.flush().expect("flush fetch");
+    let resp2 = read_frame(&mut reader).expect("fetch response");
+    match decode_response_frame(&resp2).unwrap() {
+        Response::Message { offset, payload } => {
+            assert_eq!(offset, 0);
+            assert_eq!(payload, b"\0blob".to_vec());
+        }
+        other => panic!("expected Message framed response: {other:?}"),
+    }
+
+    let f_tail = encode_fetch("ft", 99).unwrap();
+    client.write_all(&f_tail).expect("fetch tail");
+    client.flush().expect("flush fetch tail");
+    let resp3 = read_frame(&mut reader).expect("fetch none");
+    assert_eq!(decode_response_frame(&resp3).unwrap(), Response::None);
+
+    drop(reader);
+    drop(client);
+    server_thread.join().expect("join");
 }

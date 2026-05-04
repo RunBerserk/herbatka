@@ -1,8 +1,7 @@
 //! TCP server runtime for Herbatka.
-//! Accepts client connections, parses protocol lines, and dispatches broker operations.
-//! Maps broker/protocol outcomes to wire responses with connection-level logging.
+//! Accepts client connections, parses legacy line protocol or framed wire v1 after handshake,
+//! and dispatches broker operations.
 
-use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
@@ -10,6 +9,10 @@ use std::time::SystemTime;
 
 use crate::broker::core::{Broker, BrokerError};
 use crate::log::message::Message;
+use crate::tcp::frame::{
+    HANDSHAKE_SERVER_ACK_V1, WireError, decode_client_frame, encode_response, read_first_line,
+    read_frame, write_frame,
+};
 use crate::tcp::protocol::{Request, Response, format_response, parse_request};
 use tracing::{debug, error, info, warn};
 
@@ -31,10 +34,30 @@ pub fn run(addr: &str, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
 
 pub fn handle_client(mut stream: TcpStream, broker: &Arc<Mutex<Broker>>) -> io::Result<()> {
     debug!(peer = ?stream.peer_addr(), "connected");
-    let reader_stream = stream.try_clone()?;
-    let mut reader = BufReader::new(reader_stream);
-    let mut line = String::new();
 
+    let first_raw = match read_first_line(&mut stream) {
+        Ok(b) => b,
+        Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string())),
+    };
+
+    if is_handshake_v1(&first_raw) {
+        stream.write_all(HANDSHAKE_SERVER_ACK_V1)?;
+        stream.flush()?;
+        return run_framed_connection(stream, broker);
+    }
+
+    let mut reader = BufReader::new(stream);
+
+    let first_line = std::string::String::from_utf8_lossy(&first_raw);
+
+    let response = match parse_request(trim_line(first_line.trim_end_matches('\n'))) {
+        Ok(request) => dispatch_request(request, broker),
+        Err(msg) => Response::Error(msg.to_string()),
+    };
+
+    write_legacy_response(reader.get_mut(), &response)?;
+
+    let mut line = String::new();
     loop {
         line.clear();
         let bytes_read = reader.read_line(&mut line)?;
@@ -42,17 +65,69 @@ pub fn handle_client(mut stream: TcpStream, broker: &Arc<Mutex<Broker>>) -> io::
             break;
         }
 
-        let response = match parse_request(&line) {
+        let response = match parse_request(trim_line(line.trim_end())) {
             Ok(request) => dispatch_request(request, broker),
             Err(msg) => Response::Error(msg.to_string()),
         };
 
-        let out = format_response(&response);
-        stream.write_all(out.as_bytes())?;
-        stream.flush()?;
+        write_legacy_response(reader.get_mut(), &response)?;
     }
 
     Ok(())
+}
+
+fn trim_line(s: &str) -> &str {
+    s.trim_end_matches(['\n', '\r'])
+}
+
+fn write_legacy_response(stream: &mut TcpStream, response: &Response) -> io::Result<()> {
+    let out = format_response(response);
+    stream.write_all(out.as_bytes())?;
+    stream.flush()?;
+    Ok(())
+}
+
+fn is_handshake_v1(raw: &[u8]) -> bool {
+    let mut s = raw.strip_suffix(b"\n").unwrap_or(raw);
+    s = s.strip_suffix(b"\r").unwrap_or(s);
+    s == b"HERBATKA WIRE/1"
+}
+
+fn run_framed_connection(mut stream: TcpStream, broker: &Arc<Mutex<Broker>>) -> io::Result<()> {
+    loop {
+        let frame = match read_frame(&mut stream) {
+            Ok(f) => f,
+            Err(e) => match e {
+                WireError::Io(_) | WireError::Truncated => return Ok(()),
+                other => {
+                    if let Ok(enc) = encode_response(&Response::Error(other.to_string())) {
+                        let _ = write_frame(&mut stream, &enc);
+                    }
+                    return Ok(());
+                }
+            },
+        };
+
+        let req = match decode_client_frame(&frame) {
+            Ok(r) => r,
+            Err(e) => {
+                let enc = encode_response(&Response::Error(e.to_string())).map_err(|e| {
+                    io::Error::new(io::ErrorKind::InvalidData, format!("wire encode: {e}"))
+                })?;
+                write_frame(&mut stream, &enc)?;
+                continue;
+            }
+        };
+
+        let resp = dispatch_request(req, broker);
+        let enc = encode_response(&resp).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("wire encode response: {e}"),
+            )
+        })?;
+        write_frame(&mut stream, &enc)?;
+    }
 }
 
 fn dispatch_request(request: Request, broker: &Arc<Mutex<Broker>>) -> Response {
@@ -62,7 +137,7 @@ fn dispatch_request(request: Request, broker: &Arc<Mutex<Broker>>) -> Response {
     }
 }
 
-fn handle_produce(topic: &str, payload: &str, broker: &Arc<Mutex<Broker>>) -> Response {
+fn handle_produce(topic: &str, payload: &[u8], broker: &Arc<Mutex<Broker>>) -> Response {
     let mut broker_guard = match broker.lock() {
         Ok(guard) => guard,
         Err(_) => return Response::Error("internal lock error".to_string()),
@@ -92,7 +167,7 @@ fn handle_fetch(topic: &str, offset: u64, broker: &Arc<Mutex<Broker>>) -> Respon
     match broker_guard.fetch(topic, offset) {
         Ok(Some(message)) => Response::Message {
             offset,
-            payload: String::from_utf8_lossy(&message.payload).to_string(),
+            payload: message.payload.clone(),
         },
         Ok(None) => Response::None,
         Err(e) => map_broker_error(e),
@@ -107,11 +182,11 @@ fn map_broker_error(error: BrokerError) -> Response {
     }
 }
 
-fn build_message(payload: &str) -> Message {
+fn build_message(payload: &[u8]) -> Message {
     Message {
         key: None,
-        payload: payload.as_bytes().to_vec(),
+        payload: payload.to_vec(),
         timestamp: SystemTime::now(),
-        headers: HashMap::new(),
+        headers: std::collections::HashMap::new(),
     }
 }

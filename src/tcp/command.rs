@@ -6,14 +6,14 @@ use std::fmt;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Request {
-    Produce { topic: String, payload: String },
+    Produce { topic: String, payload: Vec<u8> },
     Fetch { topic: String, offset: u64 },
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Response {
     OkOffset(u64),
-    Message { offset: u64, payload: String },
+    Message { offset: u64, payload: Vec<u8> },
     None,
     Error(String),
 }
@@ -78,7 +78,7 @@ fn parse_produce(rest: &str) -> Result<Request, ParseError> {
 
     Ok(Request::Produce {
         topic: topic.to_string(),
-        payload: payload.to_string(),
+        payload: payload.as_bytes().to_vec(),
     })
 }
 
@@ -105,7 +105,9 @@ fn parse_fetch(rest: &str) -> Result<Request, ParseError> {
 pub fn format_response(response: &Response) -> String {
     match response {
         Response::OkOffset(offset) => format!("OK {offset}\n"),
-        Response::Message { offset, payload } => format!("MSG {offset} {payload}\n"),
+        Response::Message { offset, payload } => {
+            format!("MSG {offset} {}\n", String::from_utf8_lossy(payload))
+        }
         Response::None => "NONE\n".to_string(),
         Response::Error(reason) => format!("ERR {reason}\n"),
     }
@@ -122,7 +124,7 @@ mod tests {
             req,
             Request::Produce {
                 topic: "cars".to_string(),
-                payload: "speed is 120".to_string()
+                payload: b"speed is 120".to_vec(),
             }
         );
     }
@@ -156,7 +158,7 @@ mod tests {
         assert_eq!(
             format_response(&Response::Message {
                 offset: 4,
-                payload: "hello".to_string()
+                payload: b"hello".to_vec(),
             }),
             "MSG 4 hello\n".to_string()
         );

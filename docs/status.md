@@ -15,7 +15,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Append after restart (no overwrite)
 - Integration tests for persistence + recovery
 - Minimal TCP interface (server + basic protocol)
-- Define simple command format (PRODUCE / FETCH)
+- Define simple command format (PRODUCE / FETCH); **framed wire v1** with handshake (`HERBATKA WIRE/1`) + legacy first-line newline mode (`docs/tcp-wire-protocol.md`)
 - First manual end-to-end test (e.g. via netcat)
 - Simple CLI producer (send messages over TCP)
 - Simple CLI consumer (fetch loop)
@@ -77,13 +77,16 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 
 
 ## Next Up
-- update documentation for core,log
 
 
 ## Later (TODO, not now)
  
 - Protobuf encoding
 - QUIC transport
+- 3 channel arch for messages
+  heartbeat → periodic
+  control → command/response
+  telemetry → event-driven, full payload
 
 - Bevy UI integration?
 - Real IoT client (Ox64)
@@ -96,7 +99,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 
 - Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients.
 - CI: GitHub Actions workflow runs `fmt` / `clippy -D warnings` / `test` on push to `main`/`master`.
-- TCP text protocol is MVP-only; no schema/framing guarantees for long-term interoperability.
+- Legacy `MSG` lines still go through lossy UTF‑8 for display; framed v1 returns raw message bytes.
 
 ## Notes
 

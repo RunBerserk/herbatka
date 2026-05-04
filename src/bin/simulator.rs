@@ -1,4 +1,4 @@
-//! Fleet-style simulator: sends JSON `PRODUCE` events to the broker.
+//! Fleet-style simulator: sends JSON events on framed wire v1 (handshake then length-prefixed `PRODUCE` frames).
 //! Usage:
 //!   simulator --addr <host:port> --topic <name> --vehicles <n> --rate <events_per_sec> --duration-secs <n> [--scenario <steady|burst|idle|reconnect>] [--load-profile <constant|ramp|spike>] [--seed <u64>] [--quiet]
 
@@ -197,7 +197,7 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
     let mut motion = init_vehicle_motion(args.vehicles, &mut rng, run_start);
 
     let mut summary = Summary::default();
-    let (mut stream, mut reader) = connect_with_retry(&args.addr, &mut summary)?;
+    let mut stream = connect_with_retry(&args.addr, &mut summary)?;
     for seq in 0..total_events {
         let decision = scenario_decision(args.scenario, seq);
         let profile_multiplier = load_profile_multiplier(args.load_profile, seq, total_events);
@@ -210,10 +210,8 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
 
         if decision.reconnect {
             summary.reconnect_attempts += 1;
-            let (new_stream, new_reader) = connect_with_retry(&args.addr, &mut summary)?;
+            stream = connect_with_retry(&args.addr, &mut summary)?;
             summary.reconnect_successes += 1;
-            stream = new_stream;
-            reader = new_reader;
         }
 
         if !decision.send {
@@ -223,7 +221,6 @@ fn run_simulation(args: &SimulatorArgs) -> Result<Summary, String> {
 
         let mut io = event_cycle::EventIo {
             stream: &mut stream,
-            reader: &mut reader,
         };
         execute_event_cycle(
             args,
@@ -330,8 +327,8 @@ fn build_event_payload(
     )
 }
 
-fn build_produce_line(topic: &str, payload: &str) -> Result<String, String> {
-    transport::build_produce_line(topic, payload)
+fn build_produce_frame(topic: &str, payload: &str) -> Result<Vec<u8>, String> {
+    transport::build_produce_frame(topic, payload)
 }
 
 #[cfg(test)]
@@ -474,13 +471,17 @@ mod tests {
     }
 
     #[test]
-    fn produce_line_rejects_newline_payload() {
-        let line = build_produce_line("events", "bad\npayload");
-        assert!(line.is_err());
+    fn produce_frame_allows_newlines_in_json() {
+        let f = build_produce_frame("events", "a\nb").expect("frame");
+        assert_eq!(
+            f.get(0).copied(),
+            Some(herbatka::tcp::frame::WIRE_VERSION_V1)
+        );
+        assert_eq!(f.get(1).copied(), Some(herbatka::tcp::frame::OP_PRODUCE));
     }
 
     #[test]
-    fn produce_line_is_single_line_wire_message() {
+    fn produce_frame_contains_topic_utf8_after_header() {
         let payload = build_event_payload(
             1,
             1,
@@ -490,10 +491,15 @@ mod tests {
                 lon: 21.0,
             },
         );
-        let line = build_produce_line("events", &payload).expect("line should build");
-        assert!(line.starts_with("PRODUCE events "));
-        assert!(line.ends_with('\n'));
-        assert_eq!(line.matches('\n').count(), 1);
+        let buf = build_produce_frame("events", &payload).expect("frame");
+        let req = herbatka::tcp::frame::decode_client_frame(&buf).expect("decode");
+        assert_eq!(
+            req,
+            herbatka::tcp::command::Request::Produce {
+                topic: "events".into(),
+                payload: payload.as_bytes().to_vec(),
+            }
+        );
     }
 
     #[test]

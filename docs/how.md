@@ -18,7 +18,7 @@ On startup, durable **segment `.log` files** are the source of truth. **`.checkp
 
 ### Request flow
 
-`PRODUCE` and `FETCH` processing from client through TCP server/protocol to broker.
+`PRODUCE` and `FETCH` processing from client through TCP server/protocol to broker. Canonical on-the-wire framing is **[TCP wire protocol v1](tcp-wire-protocol.md)** (handshake plus length-prefixed frames); newline text mode remains as a legacy **first-line** fallback.
 
 ![Request flow](../assets/diagrams/svg/request-flow.svg)
 

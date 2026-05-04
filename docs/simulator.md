@@ -1,6 +1,6 @@
 # Simulator Guide
 
-The simulator sends deterministic JSON telemetry events to the broker over TCP using the `PRODUCE` command.
+The simulator connects with the **TCP wire v1** handshake (`HERBATKA WIRE/1`), then sends length-prefixed framed `PRODUCE` requests (JSON payloads in the binary body).
 
 Coordinates are now dynamic: each vehicle updates `lat/lon` continuously over time.
 Movement is restricted by simulator walls (a bounded lat/lon box). Vehicles cannot

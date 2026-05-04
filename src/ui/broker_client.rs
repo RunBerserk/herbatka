@@ -1,6 +1,11 @@
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
+
+use crate::tcp::command::Response;
+use crate::tcp::frame::{
+    decode_response_frame, encode_fetch, perform_client_handshake, read_frame,
+};
 
 #[derive(Debug)]
 pub enum BrokerResponse {
@@ -16,32 +21,32 @@ pub struct BrokerClient {
 
 struct BrokerConnection {
     writer: TcpStream,
-    reader: BufReader<TcpStream>,
+    reader: TcpStream,
 }
 
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(35);
 const IO_TIMEOUT: Duration = Duration::from_millis(400);
 
-fn classify_connect_error(addr: &str, error: &io::Error) -> String {
+fn classify_connect_error(addr: &str, error: &std::io::Error) -> String {
     match error.kind() {
-        io::ErrorKind::ConnectionRefused => {
+        std::io::ErrorKind::ConnectionRefused => {
             format!("broker unavailable at {addr} (connection refused)")
         }
-        io::ErrorKind::TimedOut => format!("broker unavailable at {addr} (connect timeout)"),
-        io::ErrorKind::NotFound | io::ErrorKind::AddrNotAvailable => {
+        std::io::ErrorKind::TimedOut => format!("broker unavailable at {addr} (connect timeout)"),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::AddrNotAvailable => {
             format!("broker address {addr} is invalid or unavailable")
         }
         _ => format!("connect {addr} failed: {error}"),
     }
 }
 
-fn classify_io_error(phase: &str, error: &io::Error) -> String {
+fn classify_io_error(phase: &str, error: &std::io::Error) -> String {
     match error.kind() {
-        io::ErrorKind::TimedOut => format!("broker {phase} timeout"),
-        io::ErrorKind::ConnectionReset
-        | io::ErrorKind::ConnectionAborted
-        | io::ErrorKind::BrokenPipe
-        | io::ErrorKind::UnexpectedEof => format!("broker connection lost during {phase}"),
+        std::io::ErrorKind::TimedOut => format!("broker {phase} timeout"),
+        std::io::ErrorKind::ConnectionReset
+        | std::io::ErrorKind::ConnectionAborted
+        | std::io::ErrorKind::BrokenPipe
+        | std::io::ErrorKind::UnexpectedEof => format!("broker connection lost during {phase}"),
         _ => format!("broker {phase} failed: {error}"),
     }
 }
@@ -80,10 +85,10 @@ impl BrokerClient {
     }
 
     fn fetch_once(&mut self, offset: u64) -> Result<BrokerResponse, String> {
-        let request = format!("FETCH {} {offset}\n", self.topic);
+        let topic = self.topic.clone();
         let result = {
             let connection = self.ensure_connected()?;
-            fetch_once_on_connection(connection, &request)
+            fetch_once_on_connection(connection, &topic, offset)
         };
         result.map_err(|message| self.reset_with_error(message))
     }
@@ -96,7 +101,7 @@ impl BrokerClient {
                 .map_err(|e| format!("resolve {} failed: {e}", self.addr))?
                 .next()
                 .ok_or_else(|| format!("resolve {} returned no addresses", self.addr))?;
-            let stream = TcpStream::connect_timeout(&target, CONNECT_TIMEOUT)
+            let mut stream = TcpStream::connect_timeout(&target, CONNECT_TIMEOUT)
                 .map_err(|e| classify_connect_error(&self.addr, &e))?;
             stream
                 .set_read_timeout(Some(IO_TIMEOUT))
@@ -104,10 +109,11 @@ impl BrokerClient {
             stream
                 .set_write_timeout(Some(IO_TIMEOUT))
                 .map_err(|e| format!("set write timeout failed: {e}"))?;
-            let reader_stream = stream
+            perform_client_handshake(&mut stream)
+                .map_err(|e| format!("wire handshake failed: {e}"))?;
+            let reader = stream
                 .try_clone()
                 .map_err(|e| format!("reader clone failed: {e}"))?;
-            let reader = BufReader::new(reader_stream);
             self.connection = Some(BrokerConnection {
                 writer: stream,
                 reader,
@@ -126,50 +132,33 @@ impl BrokerClient {
 
 fn fetch_once_on_connection(
     connection: &mut BrokerConnection,
-    request: &str,
+    topic: &str,
+    offset: u64,
 ) -> Result<BrokerResponse, String> {
+    let frame = encode_fetch(topic, offset).map_err(|e| e.to_string())?;
     connection
         .writer
-        .write_all(request.as_bytes())
+        .write_all(&frame)
         .map_err(|e| classify_io_error("write", &e))?;
     connection
         .writer
         .flush()
         .map_err(|e| classify_io_error("flush", &e))?;
 
-    let mut line = String::new();
-    connection
-        .reader
-        .read_line(&mut line)
-        .map_err(|e| classify_io_error("read", &e))?;
-    if line.is_empty() {
-        return Err("broker closed connection".to_string());
-    }
+    let buf = read_frame(&mut connection.reader).map_err(|e| e.to_string())?;
 
-    parse_response_line(line.trim_end())
+    parse_framed_response(&buf)
 }
 
-fn parse_response_line(line: &str) -> Result<BrokerResponse, String> {
-    if line == "NONE" {
-        return Ok(BrokerResponse::None);
-    }
-    if let Some(rest) = line.strip_prefix("MSG ") {
-        let mut parts = rest.splitn(2, ' ');
-        let offset = parts
-            .next()
-            .ok_or_else(|| "missing message offset".to_string())?
-            .parse::<u64>()
-            .map_err(|_| "invalid message offset".to_string())?;
-        let payload = parts
-            .next()
-            .ok_or_else(|| "missing message payload".to_string())?;
-        return Ok(BrokerResponse::Message {
+fn parse_framed_response(buf: &[u8]) -> Result<BrokerResponse, String> {
+    let response = decode_response_frame(buf).map_err(|e| format!("broker wire error: {e}"))?;
+    match response {
+        Response::None => Ok(BrokerResponse::None),
+        Response::Message { offset, payload } => Ok(BrokerResponse::Message {
             offset,
-            payload: payload.to_string(),
-        });
+            payload: String::from_utf8_lossy(&payload).into_owned(),
+        }),
+        Response::Error(reason) => Err(format!("broker error: {reason}")),
+        Response::OkOffset(_) => Err("unexpected OkOffset response to FETCH".to_string()),
     }
-    if let Some(reason) = line.strip_prefix("ERR ") {
-        return Err(format!("broker error: {reason}"));
-    }
-    Err(format!("unexpected broker response: {line}"))
 }

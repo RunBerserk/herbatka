@@ -1,11 +1,15 @@
-//! Minimal TCP client: drain-reads a topic by sending repeated `FETCH` lines until `NONE`.
+//! Minimal TCP client: drain-reads a topic with framed `FETCH` after wire handshake.
 //! Usage: `consumer <addr> <topic> <start_offset>` (see `USAGE`).
 
 use std::env;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Write};
 use std::net::TcpStream;
 
 use herbatka::observability;
+use herbatka::tcp::command::Response;
+use herbatka::tcp::frame::{
+    decode_response_frame, encode_fetch, perform_client_handshake, read_frame,
+};
 use tracing::error;
 
 const USAGE: &str = "usage: consumer <addr> <topic> <start_offset>";
@@ -56,24 +60,17 @@ fn validate_topic(topic: &str) -> Result<(), String> {
 fn drain_fetch_loop(addr: &str, topic: &str, mut offset: u64) -> Result<(), String> {
     let mut stream =
         TcpStream::connect(addr).map_err(|e| format!("connect failed to {addr}: {e}"))?;
-
-    let mut reader = BufReader::new(
-        stream
-            .try_clone()
-            .map_err(|e| format!("clone failed: {e}"))?,
-    );
+    perform_client_handshake(&mut stream).map_err(|e| format!("wire handshake failed: {e}"))?;
 
     loop {
-        let line = read_fetch_response_line(&mut stream, &mut reader, topic, offset)?;
-        let trimmed = line.trim_end();
-
-        match handle_fetch_line(trimmed)? {
-            FetchLineOutcome::Done => break,
-            FetchLineOutcome::Message {
+        let outcome = send_fetch_and_handle(&mut stream, topic, offset)?;
+        match outcome {
+            FetchOutcome::Done => break,
+            FetchOutcome::Message {
                 payload,
                 next_offset,
             } => {
-                println!("{payload}");
+                println!("{}", String::from_utf8_lossy(&payload));
                 io::stdout()
                     .flush()
                     .map_err(|e| format!("stdout flush failed: {e}"))?;
@@ -85,107 +82,39 @@ fn drain_fetch_loop(addr: &str, topic: &str, mut offset: u64) -> Result<(), Stri
     Ok(())
 }
 
-fn read_fetch_response_line(
+enum FetchOutcome {
+    Done,
+    Message { payload: Vec<u8>, next_offset: u64 },
+}
+
+fn send_fetch_and_handle(
     stream: &mut TcpStream,
-    reader: &mut BufReader<TcpStream>,
     topic: &str,
     offset: u64,
-) -> Result<String, String> {
-    let request = format!("FETCH {topic} {offset}\n");
+) -> Result<FetchOutcome, String> {
+    let frame = encode_fetch(topic, offset).map_err(|e| e.to_string())?;
     stream
-        .write_all(request.as_bytes())
+        .write_all(&frame)
         .map_err(|e| format!("write failed: {e}"))?;
     stream
         .flush()
         .map_err(|e| format!("socket flush failed: {e}"))?;
 
-    let mut line = String::new();
-    reader
-        .read_line(&mut line)
-        .map_err(|e| format!("read failed: {e}"))?;
+    let buf = read_frame(stream).map_err(|e| format!("read failed: {e}"))?;
+    let response = decode_response_frame(&buf).map_err(|e| format!("invalid response: {e}"))?;
 
-    if line.is_empty() {
-        return Err("server closed connection without response".into());
-    }
-
-    Ok(line)
-}
-
-enum FetchLineOutcome {
-    /// End of drain (`NONE`).
-    Done,
-    /// One message; next fetch uses `next_offset`.
-    Message { payload: String, next_offset: u64 },
-}
-
-fn handle_fetch_line(trimmed: &str) -> Result<FetchLineOutcome, String> {
-    if trimmed == "NONE" {
-        return Ok(FetchLineOutcome::Done);
-    }
-
-    if let Some(rest) = trimmed.strip_prefix("ERR ") {
-        return Err(rest.to_string());
-    }
-
-    if trimmed.starts_with("OK ") {
-        return Err(format!("unexpected response for FETCH: {trimmed}"));
-    }
-
-    if let Some((msg_offset, payload)) = parse_msg_line(trimmed) {
-        return Ok(FetchLineOutcome::Message {
+    match response {
+        Response::None => Ok(FetchOutcome::Done),
+        Response::Message {
+            offset: msg_offset,
+            payload,
+        } => Ok(FetchOutcome::Message {
             payload,
             next_offset: msg_offset.saturating_add(1),
-        });
-    }
-
-    Err(format!("unexpected response line: {trimmed}"))
-}
-
-/// Parses `MSG <offset> <payload>` (payload may contain spaces; only line ending is trimmed).
-fn parse_msg_line(line: &str) -> Option<(u64, String)> {
-    let rest = line.strip_prefix("MSG ")?;
-    let mut parts = rest.splitn(2, ' ');
-    let offset_str = parts.next()?;
-    let payload = parts.next().unwrap_or("");
-    let offset = offset_str.parse().ok()?;
-    Some((offset, payload.to_string()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{FetchLineOutcome, handle_fetch_line, parse_msg_line};
-
-    #[test]
-    fn parse_msg_with_spaces_in_payload() {
-        let (o, p) = parse_msg_line("MSG 3 speed is 120").expect("parse");
-        assert_eq!(o, 3);
-        assert_eq!(p, "speed is 120");
-    }
-
-    #[test]
-    fn handle_fetch_line_none() {
-        assert!(matches!(
-            handle_fetch_line("NONE").unwrap(),
-            FetchLineOutcome::Done
-        ));
-    }
-
-    #[test]
-    fn handle_fetch_line_msg() {
-        match handle_fetch_line("MSG 1 hello world").unwrap() {
-            FetchLineOutcome::Message {
-                payload,
-                next_offset,
-            } => {
-                assert_eq!(payload, "hello world");
-                assert_eq!(next_offset, 2);
-            }
-            FetchLineOutcome::Done => panic!("expected Message"),
-        }
-    }
-
-    #[test]
-    fn handle_fetch_line_err() {
-        assert!(handle_fetch_line("ERR bad").is_err());
+        }),
+        Response::Error(reason) => Err(reason),
+        Response::OkOffset(_) => Err(format!(
+            "unexpected OkOffset response for FETCH at offset {offset}"
+        )),
     }
 }

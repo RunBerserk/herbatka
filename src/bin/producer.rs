@@ -1,11 +1,15 @@
-//! Minimal TCP client: sends one `PRODUCE` line to the broker and prints the response.
+//! Minimal TCP client: sends one framed `PRODUCE` to the broker after wire handshake.
 //! Usage: `producer <addr> <topic> <payload>` (see `USAGE`).
 
 use std::env;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::Write;
 use std::net::TcpStream;
 
 use herbatka::observability;
+use herbatka::tcp::command::Response;
+use herbatka::tcp::frame::{
+    decode_response_frame, encode_produce, perform_client_handshake, read_frame,
+};
 use tracing::error;
 
 const USAGE: &str = "usage: producer <addr> <topic> <payload>";
@@ -55,29 +59,28 @@ fn validate_topic_and_payload(topic: &str, payload: &str) -> Result<(), String> 
 fn send_produce_and_print_response(addr: &str, topic: &str, payload: &str) -> Result<(), String> {
     let mut stream =
         TcpStream::connect(addr).map_err(|e| format!("connect failed to {addr}: {e}"))?;
+    perform_client_handshake(&mut stream).map_err(|e| format!("wire handshake failed: {e}"))?;
 
-    let request = format!("PRODUCE {topic} {payload}\n");
+    let frame = encode_produce(topic, payload.as_bytes()).map_err(|e| e.to_string())?;
     stream
-        .write_all(request.as_bytes())
+        .write_all(&frame)
         .map_err(|e| format!("write failed: {e}"))?;
     stream
         .flush()
         .map_err(|e| format!("socket flush failed: {e}"))?;
 
-    let mut reader = BufReader::new(stream);
-    let mut response = String::new();
-    reader
-        .read_line(&mut response)
-        .map_err(|e| format!("read failed: {e}"))?;
+    let buf = read_frame(&mut stream).map_err(|e| format!("read failed: {e}"))?;
+    let response = decode_response_frame(&buf).map_err(|e| format!("invalid response: {e}"))?;
 
-    if response.is_empty() {
-        return Err("server closed connection without response".into());
+    match response {
+        Response::OkOffset(off) => println!("OK {off}"),
+        Response::Error(reason) => {
+            println!("ERR {reason}");
+        }
+        _ => {
+            return Err("unexpected response to PRODUCE".into());
+        }
     }
-
-    print!("{response}");
-    io::stdout()
-        .flush()
-        .map_err(|e| format!("stdout flush failed: {e}"))?;
 
     Ok(())
 }

@@ -1,25 +1,21 @@
-use std::io::BufReader;
 use std::net::TcpStream;
 use std::thread::sleep;
 use std::time::Duration;
+
+use herbatka::tcp::frame::perform_client_handshake;
 
 use super::Summary;
 
 const CONNECT_RETRY_MAX_ATTEMPTS: u32 = 3;
 
-fn open_connection_once(addr: &str) -> Result<(TcpStream, BufReader<TcpStream>), String> {
-    let stream = TcpStream::connect(addr).map_err(|e| format!("connect failed to {addr}: {e}"))?;
-    let reader_stream = stream
-        .try_clone()
-        .map_err(|e| format!("clone failed: {e}"))?;
-    let reader = BufReader::new(reader_stream);
-    Ok((stream, reader))
+fn open_connection_once(addr: &str) -> Result<TcpStream, String> {
+    let mut stream =
+        TcpStream::connect(addr).map_err(|e| format!("connect failed to {addr}: {e}"))?;
+    perform_client_handshake(&mut stream).map_err(|e| format!("wire handshake failed: {e}"))?;
+    Ok(stream)
 }
 
-pub(super) fn connect_with_retry(
-    addr: &str,
-    summary: &mut Summary,
-) -> Result<(TcpStream, BufReader<TcpStream>), String> {
+pub(super) fn connect_with_retry(addr: &str, summary: &mut Summary) -> Result<TcpStream, String> {
     for attempt in 1..=CONNECT_RETRY_MAX_ATTEMPTS {
         match open_connection_once(addr) {
             Ok(conn) => return Ok(conn),
@@ -40,15 +36,13 @@ pub(super) fn retry_backoff(attempt: u32) -> Duration {
     Duration::from_millis(200u64.saturating_mul(attempt as u64))
 }
 
-pub(super) fn build_produce_line(topic: &str, payload: &str) -> Result<String, String> {
+pub(super) fn build_produce_frame(topic: &str, payload: &str) -> Result<Vec<u8>, String> {
     if topic.trim().is_empty() {
         return Err("topic must not be empty".to_string());
     }
     if payload.is_empty() {
         return Err("payload must not be empty".to_string());
     }
-    if payload.contains('\n') || payload.contains('\r') {
-        return Err("payload must not contain newlines".to_string());
-    }
-    Ok(format!("PRODUCE {topic} {payload}\n"))
+    use herbatka::tcp::frame::encode_produce;
+    encode_produce(topic, payload.as_bytes()).map_err(|e| e.to_string())
 }
