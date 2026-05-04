@@ -24,7 +24,8 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Basic observability (logs / debug output)
 - Topic auto-discovery on startup
 - Segment files per topic
-- Retention (max_topic_bytes)
+- Retention (`max_topic_bytes` global default)
+- Per-topic retention overrides (`[per_topic_max_bytes]` in `herbatka.toml`; exact topic names only)
 - Fsync policy tuning
 - Corrupted-tail handling on startup replay (`UnexpectedEof` tail is truncated to last valid record boundary)
 - Protocol command extraction to dedicated module (`tcp::command`) with compatibility shim in `tcp::protocol`
@@ -74,12 +75,14 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - CI guardrails yet (`fmt`/`clippy`/`test` in pipeline), increasing regression risk.
  - Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
 
+## In Progress
+
 ## Next Up
 
-- Per-topic retention / quotas (if we need tight control-plane caps vs telemetry)
-  - Design per-topic limits (or prefix rules) vs global `max_topic_bytes`
-  - Extend config + retention + tests
+
 - Optional: schema per channel (e.g. Protobuf) inside framed payloads
+
+
 
 ## Later (TODO, not now)
  

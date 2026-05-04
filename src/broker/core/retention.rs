@@ -1,3 +1,8 @@
+//! Topic byte caps: after each produce, if the topic’s total on-disk segment size exceeds the
+//! effective limit from config ([`crate::config::BrokerConfig::topic_retention_byte_limit`]),
+//! drop the **oldest** segment files (and their index sidecars) until under the cap or only one
+//! segment remains. No limit configured for that topic means retention is skipped.
+
 use std::fs::remove_file;
 
 use super::{Broker, BrokerError};
@@ -5,7 +10,7 @@ use crate::broker::index;
 
 impl Broker {
     pub(super) fn enforce_retention(&mut self, topic: &str) -> Result<bool, BrokerError> {
-        let Some(max_topic_bytes) = self.config.max_topic_bytes else {
+        let Some(max_topic_bytes) = self.config.topic_retention_byte_limit(topic) else {
             return Ok(false);
         };
         let Some(state) = self.topics.get_mut(topic) else {

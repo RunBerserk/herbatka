@@ -32,5 +32,5 @@ If you prefer a shared product prefix: `myapp.<scope>.heartbeat`, or flat names 
 
 ## Caveats (today)
 
-- **`max_topic_bytes`** in [`herbatka.toml`](../herbatka.toml) applies **globally** across topics when set—not per lane. Tighter retention for **control** vs **telemetry** is a **future broker/config** change; see [status.md](status.md) **Next Up**.
+- **Retention caps**: global **`max_topic_bytes`** in [`herbatka.toml`](../herbatka.toml) applies to every topic unless you set a **`[per_topic_max_bytes]`** entry for the **exact** topic string (e.g. `"<scope>.control"` vs `"<scope>.telemetry"`). There is no prefix or wildcard matching yet.
 - **Protobuf** (or other schemas) per lane is optional and lives **inside** framed message bodies; see **Next Up** in status.

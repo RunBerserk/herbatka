@@ -211,6 +211,36 @@ fn retention_evicts_old_offsets_when_max_topic_bytes_is_set() {
 }
 
 #[test]
+fn per_topic_retention_only_applies_to_listed_topics() {
+    let dir = temp_data_dir("herbatka_per_topic_retention");
+    let cfg = BrokerConfig {
+        data_dir: dir.clone(),
+        segment_max_bytes: 80,
+        max_topic_bytes: None,
+        per_topic_max_bytes: [("b".into(), 140)].into_iter().collect(),
+        fsync_policy: FsyncPolicy::Never,
+        ..BrokerConfig::default()
+    };
+    let mut broker = Broker::with_config(cfg);
+    broker.create_topic("a".into()).unwrap();
+    broker.create_topic("b".into()).unwrap();
+    let big = vec![b'b'; 64];
+
+    broker.produce("a", message(&big)).unwrap();
+    broker.produce("a", message(&big)).unwrap();
+    broker.produce("a", message(&big)).unwrap();
+
+    broker.produce("b", message(&big)).unwrap();
+    broker.produce("b", message(&big)).unwrap();
+    broker.produce("b", message(&big)).unwrap();
+
+    assert!(broker.fetch("a", 0).unwrap().is_some());
+    assert!(broker.fetch("a", 2).unwrap().is_some());
+    assert!(broker.fetch("b", 0).unwrap().is_none());
+    assert!(broker.fetch("b", 2).unwrap().is_some());
+}
+
+#[test]
 fn startup_truncates_partial_tail_and_recovers() {
     let dir = temp_data_dir("herbatka_tail_truncate");
     let mut broker = Broker::with_data_dir(dir.clone());

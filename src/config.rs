@@ -3,6 +3,7 @@
 //! Applies defaults and validates user-provided values before startup.
 
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::net::SocketAddr;
@@ -21,6 +22,9 @@ pub struct BrokerConfig {
     pub data_dir: PathBuf,
     pub segment_max_bytes: u64,
     pub max_topic_bytes: Option<u64>,
+    /// Byte cap overrides by **exact topic name**. When a topic appears here, this value wins;
+    /// otherwise [`Self::topic_retention_byte_limit`] falls back to `max_topic_bytes`.
+    pub per_topic_max_bytes: HashMap<String, u64>,
     pub fsync_policy: FsyncPolicy,
     /// `"host:port"` accepted by [`SocketAddr`]; used by `herbatka` binary only (library tests ignore).
     pub listen_addr: String,
@@ -32,6 +36,7 @@ impl Default for BrokerConfig {
             data_dir: PathBuf::from("data/logs"),
             segment_max_bytes: 1024 * 1024,
             max_topic_bytes: None,
+            per_topic_max_bytes: HashMap::new(),
             fsync_policy: FsyncPolicy::Always,
             listen_addr: "127.0.0.1:7000".to_string(),
         }
@@ -43,6 +48,8 @@ struct RawBrokerConfig {
     data_dir: Option<PathBuf>,
     segment_max_bytes: Option<u64>,
     max_topic_bytes: Option<u64>,
+    #[serde(default)]
+    per_topic_max_bytes: HashMap<String, u64>,
     fsync_policy: Option<FsyncPolicy>,
     listen_addr: Option<String>,
 }
@@ -61,6 +68,7 @@ pub fn load_broker_config(path: &Path) -> io::Result<BrokerConfig> {
     if let Some(max_topic_bytes) = parsed.max_topic_bytes {
         config.max_topic_bytes = Some(max_topic_bytes);
     }
+    config.per_topic_max_bytes = parsed.per_topic_max_bytes;
     if let Some(fsync_policy) = parsed.fsync_policy {
         config.fsync_policy = fsync_policy;
     }
@@ -69,6 +77,16 @@ pub fn load_broker_config(path: &Path) -> io::Result<BrokerConfig> {
     }
     validate_broker_config(&config)?;
     Ok(config)
+}
+
+impl BrokerConfig {
+    /// Effective retained size cap for `topic`: per-topic override, else [`Self::max_topic_bytes`].
+    pub fn topic_retention_byte_limit(&self, topic: &str) -> Option<u64> {
+        self.per_topic_max_bytes
+            .get(topic)
+            .copied()
+            .or(self.max_topic_bytes)
+    }
 }
 
 pub fn validate_broker_config(config: &BrokerConfig) -> io::Result<()> {
@@ -85,6 +103,20 @@ pub fn validate_broker_config(config: &BrokerConfig) -> io::Result<()> {
             io::ErrorKind::InvalidInput,
             "max_topic_bytes must be > 0 when set",
         ));
+    }
+    for (topic, bytes) in &config.per_topic_max_bytes {
+        if topic.trim().is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "per_topic_max_bytes topic keys must not be empty",
+            ));
+        }
+        if *bytes == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("per_topic_max_bytes[{topic:?}] must be > 0"),
+            ));
+        }
     }
     let trimmed = config.listen_addr.trim();
     if trimmed.is_empty() {
@@ -161,5 +193,62 @@ listen_addr = "0.0.0.0:9092"
             ..BrokerConfig::default()
         };
         assert!(validate_broker_config(&cfg).is_err());
+    }
+
+    #[test]
+    fn load_config_per_topic_max_bytes() {
+        let dir = std::env::temp_dir().join(format!(
+            "herbatka_cfg_topics_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("herbatka.toml");
+        fs::write(
+            &path,
+            r#"
+listen_addr = "127.0.0.1:7000"
+[per_topic_max_bytes]
+a = 100
+"b.c" = 200
+"#,
+        )
+        .unwrap();
+
+        let cfg = load_broker_config(&path).unwrap();
+        assert_eq!(cfg.per_topic_max_bytes.get("a"), Some(&100));
+        assert_eq!(cfg.per_topic_max_bytes.get("b.c"), Some(&200));
+        assert_eq!(cfg.topic_retention_byte_limit("a"), Some(100));
+        assert_eq!(cfg.topic_retention_byte_limit("b.c"), Some(200));
+        assert_eq!(cfg.topic_retention_byte_limit("other"), None);
+    }
+
+    #[test]
+    fn topic_retention_falls_back_to_global() {
+        let cfg = BrokerConfig {
+            max_topic_bytes: Some(999),
+            per_topic_max_bytes: [("only".into(), 111)].into_iter().collect(),
+            ..BrokerConfig::default()
+        };
+        validate_broker_config(&cfg).unwrap();
+        assert_eq!(cfg.topic_retention_byte_limit("only"), Some(111));
+        assert_eq!(cfg.topic_retention_byte_limit("x"), Some(999));
+    }
+
+    #[test]
+    fn per_topic_zero_is_rejected() {
+        let mut bad = BrokerConfig::default();
+        bad.per_topic_max_bytes.insert("t".into(), 0);
+        assert!(validate_broker_config(&bad).is_err());
+    }
+
+    #[test]
+    fn per_topic_empty_key_is_rejected() {
+        let mut bad = BrokerConfig::default();
+        bad.per_topic_max_bytes.insert(String::new(), 64);
+        assert!(validate_broker_config(&bad).is_err());
     }
 }
