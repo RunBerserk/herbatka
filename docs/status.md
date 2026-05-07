@@ -68,9 +68,9 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 
 ## Known Gaps / Risks
 
-- Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients.
-- CI: GitHub Actions workflow runs `fmt` / `clippy -D warnings` / `test` on push to `main`/`master`.
-- Legacy `MSG` lines still go through lossy UTF‑8 for display; framed v1 returns raw message bytes.
+- Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients. (should quantify under real load before redesigning — pattern unchanged in `src/main.rs` + `tcp/server.rs`.)
+- CI: GitHub Actions workflow runs `fmt` / `clippy -D warnings` / `test` on push to `main`/`master`. (should also mention `pull_request` into `main` per `.github/workflows/ci.yml`; “guardrails” could be tightened later with `cargo doc`, MSRV pins, audit, etc., if desired.)
+- Legacy `MSG` lines still go through lossy UTF‑8 for display; framed v1 returns raw message bytes. (should clarify: legacy text uses **`tcp/command::format_response`**; framed **wire** stays raw bytes, but **consumer** and **UI** `broker_client` still **`from_utf8_lossy`** for stdout / `String` payloads.)
 
 ## Notes
 
