@@ -3,6 +3,12 @@ name = "herbatka"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
+description = "A lightweight event streaming broker inspired by Apache Kafka, focused on simplicity, resilience, and fast iteration."
+license = "MIT"
+repository = "https://github.com/RunBerserk/herbatka"
+readme = "README.md"
+keywords = ["kafka", "broker", "messaging", "streaming", "log"]
+categories = ["network-programming", "database-implementations"]
 
 [dependencies]
 prost = "0.13"

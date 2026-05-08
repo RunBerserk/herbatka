@@ -49,14 +49,14 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - Tail-segment optimization  : evaluate index-assisted seek/partial replay without weakening corruption safety.
  - refactor startup_discovery
  - CI guardrails: `fmt` / `clippy -D warnings` / `cargo doc` (with `RUSTDOCFLAGS=-D warnings`) / `test` on push to `main`/`master` and `pull_request` into `main`; toolchain pinned via `rust-toolchain.toml` and `rust-version` in `Cargo.toml`.
+ - `Cargo.toml` package metadata for discovery / future publish: `description`, `license` (MIT), `repository`, `readme`, `keywords`, `categories`.
  - Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
 
 ## In Progress
 
 ## Next Up
--Cargo.toml metadata + optional rust-version
--Replace expect in load_topic.rs with Err
--Stub CHANGELOG.md
+- Replace expect in load_topic.rs with Err
+- Stub CHANGELOG.md
 - subdirectories for docs
 
 ## Later (TODO, not now)
