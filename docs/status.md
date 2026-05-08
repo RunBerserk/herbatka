@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-05-04
+Last updated: 2026-05-08
 
 ## Current Phase
 
@@ -48,28 +48,30 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - refactor simulator.rs
  - Tail-segment optimization  : evaluate index-assisted seek/partial replay without weakening corruption safety.
  - refactor startup_discovery
- - CI guardrails yet (`fmt`/`clippy`/`test` in pipeline), increasing regression risk.
+ - CI guardrails: `fmt` / `clippy -D warnings` / `cargo doc` (with `RUSTDOCFLAGS=-D warnings`) / `test` on push to `main`/`master` and `pull_request` into `main`; toolchain pinned via `rust-toolchain.toml` and `rust-version` in `Cargo.toml`.
  - Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
 
 ## In Progress
 
 ## Next Up
-
-
+-Cargo.toml metadata + optional rust-version
+-Replace expect in load_topic.rs with Err
+-Stub CHANGELOG.md
+- subdirectories for docs
 
 ## Later (TODO, not now)
  
 - **Protobuf on the wire** (replacing framed layout with protobuf RPC) — not the same as payload protobuf inside today’s frame body; only if a new protocol version is desired
 - QUIC transport
 - Bevy UI integration?
-- Real IoT client (Ox64)
--  skills folder
+- seperate project to 3 projects, broker, simulation, ui
 - ui dark mode/bright mode
+- Real IoT client (Ox64)
 
 ## Known Gaps / Risks
 
 - Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients. (should quantify under real load before redesigning — pattern unchanged in `src/main.rs` + `tcp/server.rs`.)
-- CI: GitHub Actions workflow runs `fmt` / `clippy -D warnings` / `test` on push to `main`/`master`. (should also mention `pull_request` into `main` per `.github/workflows/ci.yml`; “guardrails” could be tightened later with `cargo doc`, MSRV pins, audit, etc., if desired.)
+
 - Legacy `MSG` lines still go through lossy UTF‑8 for display; framed v1 returns raw message bytes. (should clarify: legacy text uses **`tcp/command::format_response`**; framed **wire** stays raw bytes, but **consumer** and **UI** `broker_client` still **`from_utf8_lossy`** for stdout / `String` payloads.)
 
 ## Notes

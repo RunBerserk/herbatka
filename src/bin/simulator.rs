@@ -2,7 +2,7 @@
 //! Default payload is JSON; **`--payload-format protobuf`** emits `FleetTelemetryEvent` protobuf
 //! (`herbatka::generated_schemas`) — align the **`--topic`** with consumers (for example `*.telemetry`).
 //! Usage:
-//!   simulator ... [--payload-format json|protobuf] [--scenario ...] [--load-profile ...] [--seed <u64>] [--quiet]
+//!   simulator ... [--payload-format json|protobuf] [--scenario ...] [--load-profile ...] [--seed `<u64>`] [--quiet]
 
 use std::thread::sleep;
 use std::time::{Duration, Instant};
