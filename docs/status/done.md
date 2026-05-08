@@ -1,0 +1,48 @@
+# Done
+
+History of completed work. New entries land at the bottom; no entries are removed once added.
+
+- In-memory log + produce/fetch
+- Disk append format (`[len][message]`)
+- Encode/decode (binary, minimal)
+- Recovery on restart (per topic, via replay)
+- Append after restart (no overwrite)
+- Integration tests for persistence + recovery
+- Minimal TCP interface (server + basic protocol)
+- Define simple command format (PRODUCE / FETCH); **framed wire v1** with handshake (`HERBATKA WIRE/1`) + legacy first-line newline mode (`docs/reference/tcp-wire-protocol.md`)
+- Three logical channels (heartbeat / control / telemetry) as **topic naming only** — see [logical-channels.md](../reference/logical-channels.md); broker unchanged
+- Canonical **Protobuf** shapes for those lanes (`proto/herbatka_fleet.proto`, `herbatka::generated_schemas`); payload bytes inside framed bodies; default demos stay JSON on topic `events`
+- First manual end-to-end test (e.g. via netcat)
+- Simple CLI producer (send messages over TCP)
+- Simple CLI consumer (fetch loop)
+- End-to-end pipeline: external client -> broker -> fetch
+- Basic observability (logs / debug output)
+- Topic auto-discovery on startup
+- Segment files per topic
+- Retention (`max_topic_bytes` global default)
+- Per-topic retention overrides (`[per_topic_max_bytes]` in `herbatka.toml`; exact topic names only)
+- Fsync policy tuning
+- Corrupted-tail handling on startup replay (`UnexpectedEof` tail is truncated to last valid record boundary)
+- Protocol command extraction to dedicated module (`tcp::command`) with compatibility shim in `tcp::protocol`
+- Startup checkpoint manifest foundation (`.checkpoint`) with per-segment metadata (`base_offset`, `message_count`, `valid_len`)
+- Hybrid checkpoint persistence cadence (on segment roll/retention and every N appends)
+- Checkpoint fallback safety (stale/corrupt checkpoint falls back to safe replay path)
+- Build the simulator (data producer)
+  - [x] MVP simulator CLI
+  - [x] Scenario engine
+  - [x] Reliability/observability
+  - [x] Load profiles
+  - [x] Docs + test harness
+- Startup sparse index foundation is in place (sidecar write/read + compatibility checks + safe fallback paths).
+- Sparse-index startup skip for trusted closed segments is complete; tail segment replay path remains unchanged with corruption-truncation safety.
+- Startup replay telemetry contract for fallback reasons is covered (`tail_segment`, `missing_checkpoint`, `missing_or_invalid_index`, `index_incompatible`).
+- Non-tail `MustReplay` uses the same last-sparse-anchor seek as tail replay when checkpoint + index align (`closed_partial_replay_used` / `closed_partial_replay_fallback` in startup summary log); `can_metadata_skip` barrier for **trusted** closed skip after an earlier decode replay is unchanged (in-memory `fetch` consistency).
+- MVP UI client (`egui`, map-first)
+- Refactoring `core.rs`
+- Refactor `simulator.rs`
+- Tail-segment optimization: evaluate index-assisted seek/partial replay without weakening corruption safety.
+- Refactor `startup_discovery`
+- CI guardrails: `fmt` / `clippy -D warnings` / `cargo doc` (with `RUSTDOCFLAGS=-D warnings`) / `test` on push to `main`/`master` and `pull_request` into `main`; toolchain pinned via `rust-toolchain.toml` and `rust-version` in `Cargo.toml`.
+- `Cargo.toml` package metadata for discovery / future publish: `description`, `license` (MIT), `repository`, `readme`, `keywords`, `categories`.
+- Docs reorganized into `docs/reference/` (specs + guides) and `docs/status/` (status, roadmap, benchmarks); concept docs (`why`/`what`/`how`) stay at `docs/` root.
+- Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
