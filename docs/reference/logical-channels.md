@@ -4,11 +4,11 @@ Applications can treat Herbatka as **three logical lanes**—**heartbeat**, **co
 
 ## Diagrams
 
-Sources (Mermaid): [`logical-channels-topics.mmd`](../assets/diagrams/mmd/logical-channels-topics.mmd), [`logical-channels-lanes.mmd`](../assets/diagrams/mmd/logical-channels-lanes.mmd). Render to SVG with `@mermaid-js/mermaid-cli` next to other diagrams under `assets/diagrams/`.
+Sources (Mermaid): [`logical-channels-topics.mmd`](../../assets/diagrams/mmd/logical-channels-topics.mmd), [`logical-channels-lanes.mmd`](../../assets/diagrams/mmd/logical-channels-lanes.mmd). Render to SVG with `@mermaid-js/mermaid-cli` next to other diagrams under `assets/diagrams/`.
 
-![One scope splits into three topic strings; broker stores opaque payloads](../assets/diagrams/svg/logical-channels-topics.svg)
+![One scope splits into three topic strings; broker stores opaque payloads](../../assets/diagrams/svg/logical-channels-topics.svg)
 
-![Producers pick a lane by topic suffix; consumers decode using an agreed schema](../assets/diagrams/svg/logical-channels-lanes.svg)
+![Producers pick a lane by topic suffix; consumers decode using an agreed schema](../../assets/diagrams/svg/logical-channels-lanes.svg)
 
 ## Lanes (intent)
 
@@ -46,16 +46,16 @@ Protobuf (or other encodings) are **opaque bytes** inside the framed Produce/Fet
 
 | Topic pattern (example) | Suggested protobuf message (`herbatka.fleet`) |
 |-------------------------|---------------------------------------------|
-| `<scope>.heartbeat` | [`FleetHeartbeat`](../proto/herbatka_fleet.proto) |
-| `<scope>.control` | [`FleetControlEnvelope`](../proto/herbatka_fleet.proto) |
-| `<scope>.telemetry` | [`FleetTelemetryEvent`](../proto/herbatka_fleet.proto) |
+| `<scope>.heartbeat` | [`FleetHeartbeat`](../../proto/herbatka_fleet.proto) |
+| `<scope>.control` | [`FleetControlEnvelope`](../../proto/herbatka_fleet.proto) |
+| `<scope>.telemetry` | [`FleetTelemetryEvent`](../../proto/herbatka_fleet.proto) |
 
-Rust types are codegen’d into the crate (see [`src/generated_schemas.rs`](../src/generated_schemas.rs)). **FleetTelemetryEvent** mirrors the MVP JSON **`FleetEvent`** shape (`vehicle_id`, `ts_ms`, `speed`, `lat`, `lon`) used by simulator/UI demos so consumers can migrate topic-by-topic.
+Rust types are codegen’d into the crate (see [`src/generated_schemas.rs`](../../src/generated_schemas.rs)). **FleetTelemetryEvent** mirrors the MVP JSON **`FleetEvent`** shape (`vehicle_id`, `ts_ms`, `speed`, `lat`, `lon`) used by simulator/UI demos so consumers can migrate topic-by-topic.
 
-**Headers:** persisted [`Message`](../src/log/message.rs) records may carry **`headers`** (e.g. `content-type`). The TCP server path today attaches **empty** headers; metadata is purely by convention unless the wire gains an optional metadata field later.
+**Headers:** persisted [`Message`](../../src/log/message.rs) records may carry **`headers`** (e.g. `content-type`). The TCP server path today attaches **empty** headers; metadata is purely by convention unless the wire gains an optional metadata field later.
 
 Default demo topic **`events`** remains **JSON** in examples unless you explicitly opt into Protobuf producers (simulator **`--payload-format protobuf`**).
 
 ## Caveats (today)
 
-- **Retention caps**: global **`max_topic_bytes`** in [`herbatka.toml`](../herbatka.toml) applies to every topic unless you set a **`[per_topic_max_bytes]`** entry for the **exact** topic string (e.g. `"<scope>.control"` vs `"<scope>.telemetry"`). There is no prefix or wildcard matching yet.
+- **Retention caps**: global **`max_topic_bytes`** in [`herbatka.toml`](../../herbatka.toml) applies to every topic unless you set a **`[per_topic_max_bytes]`** entry for the **exact** topic string (e.g. `"<scope>.control"` vs `"<scope>.telemetry"`). There is no prefix or wildcard matching yet.

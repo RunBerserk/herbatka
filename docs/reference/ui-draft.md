@@ -6,7 +6,7 @@ First draft for a minimal Rust desktop UI (`egui`-first) that is centered on liv
 
 Source of truth for iteration:
 
-- `assets/diagrams/mmd/fleet-ui-draft.mmd`
+- `../../assets/diagrams/mmd/fleet-ui-draft.mmd`
 
 ```mermaid
 flowchart LR
@@ -44,4 +44,4 @@ flowchart LR
 
 Rendered static draft:
 
-![Fleet UI draft](../assets/diagrams/svg/fleet-ui-draft.svg)
+![Fleet UI draft](../../assets/diagrams/svg/fleet-ui-draft.svg)

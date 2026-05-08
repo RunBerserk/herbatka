@@ -8,7 +8,7 @@ High-level strategy.
 ## Architecture
 Main components and their responsibilities.
 
-Applications may use **three logical channels** (heartbeat, control, telemetry) as **distinct topic names** only; the broker does not interpret channel type. See [Logical channels](logical-channels.md).
+Applications may use **three logical channels** (heartbeat, control, telemetry) as **distinct topic names** only; the broker does not interpret channel type. See [Logical channels](reference/logical-channels.md).
 
 ### Source of truth and rebuild
 
@@ -20,7 +20,7 @@ On startup, durable **segment `.log` files** are the source of truth. **`.checkp
 
 ### Request flow
 
-`PRODUCE` and `FETCH` processing from client through TCP server/protocol to broker. Canonical on-the-wire framing is **[TCP wire protocol v1](tcp-wire-protocol.md)** (handshake plus length-prefixed frames); newline text mode remains as a legacy **first-line** fallback.
+`PRODUCE` and `FETCH` processing from client through TCP server/protocol to broker. Canonical on-the-wire framing is **[TCP wire protocol v1](reference/tcp-wire-protocol.md)** (handshake plus length-prefixed frames); newline text mode remains as a legacy **first-line** fallback.
 
 ![Request flow](../assets/diagrams/svg/request-flow.svg)
 
@@ -46,7 +46,7 @@ How `--scenario` and `--load-profile` combine into effective event cadence.
 
 First-pass layout for a Rust desktop UI (`egui`-first), centered on a vehicle map with telemetry and broker/simulator controls.
 
-- Draft doc: [UI Draft](ui-draft.md)
+- Draft doc: [UI Draft](reference/ui-draft.md)
 - Mermaid source: `../assets/diagrams/mmd/fleet-ui-draft.mmd`
 - SVG preview: `../assets/diagrams/svg/fleet-ui-draft.svg`
 

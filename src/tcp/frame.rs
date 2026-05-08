@@ -1,5 +1,5 @@
 //! Length-prefixed binary wire protocol v1 (after `HERBATKA WIRE/1` handshake).
-//! See `docs/tcp-wire-protocol.md`.
+//! See `docs/reference/tcp-wire-protocol.md`.
 
 use std::io::{self, Read, Write};
 use std::net::TcpStream;

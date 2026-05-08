@@ -9,15 +9,15 @@ A lightweight event streaming broker inspired by Apache Kafka, focused on simpli
 - [Why](docs/why.md) - purpose and philosophy
 - [What](docs/what.md) - concrete features and commands
 - [How](docs/how.md) - principles and architecture
-- [UI Draft](docs/ui-draft.md) - map-first fleet UI wireframe and Mermaid source
-- [Simulator Guide](docs/simulator.md) - simulator flags, counters, and troubleshooting
-- [Test Harness](docs/test-harness.md) - deterministic local smoke flow
-- [TCP wire protocol](docs/tcp-wire-protocol.md) - handshake, framed v1, and legacy line mode
-- [Logical channels](docs/logical-channels.md) - heartbeat / control / telemetry via topic naming (broker-agnostic convention)
+- [UI Draft](docs/reference/ui-draft.md) - map-first fleet UI wireframe and Mermaid source
+- [Simulator Guide](docs/reference/simulator.md) - simulator flags, counters, and troubleshooting
+- [Test Harness](docs/reference/test-harness.md) - deterministic local smoke flow
+- [TCP wire protocol](docs/reference/tcp-wire-protocol.md) - handshake, framed v1, and legacy line mode
+- [Logical channels](docs/reference/logical-channels.md) - heartbeat / control / telemetry via topic naming (broker-agnostic convention)
 
 ## Logical channels diagrams
 
-Convention: three **topic names** per scope (`<scope>.heartbeat`, `.control`, `.telemetry`); the broker stores opaque bytes only. Detail: [Logical channels](docs/logical-channels.md).
+Convention: three **topic names** per scope (`<scope>.heartbeat`, `.control`, `.telemetry`); the broker stores opaque bytes only. Detail: [Logical channels](docs/reference/logical-channels.md).
 
 ![Logical channels: one scope, three topics, broker sees strings plus bytes](assets/diagrams/svg/logical-channels-topics.svg)
 
@@ -50,7 +50,7 @@ The broker listens at `listen_addr` in `herbatka.toml` (default `127.0.0.1:7000`
 Broker startup loads `herbatka.toml` from the **current working directory** by default.
 You can override config path with `HERBATKA_CONFIG=/path/to/file.toml`.
 
-**Wire protocol:** In-repo binaries (`producer`, `consumer`, `simulator`, UI) negotiate **framed wire v1** after the first line handshake (`HERBATKA WIRE/1` → `HERBATKA OK/1`), then exchange length‑prefixed binary frames. Sending `PRODUCE …` / `FETCH …` as the **first** line skips the handshake and keeps the legacy newline protocol for that connection (handy for ad‑hoc `telnet`/netcat). Details: [TCP wire protocol](docs/tcp-wire-protocol.md).
+**Wire protocol:** In-repo binaries (`producer`, `consumer`, `simulator`, UI) negotiate **framed wire v1** after the first line handshake (`HERBATKA WIRE/1` → `HERBATKA OK/1`), then exchange length‑prefixed binary frames. Sending `PRODUCE …` / `FETCH …` as the **first** line skips the handshake and keeps the legacy newline protocol for that connection (handy for ad‑hoc `telnet`/netcat). Details: [TCP wire protocol](docs/reference/tcp-wire-protocol.md).
 
 ### Terminal 1 (broker)
 

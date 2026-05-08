@@ -15,8 +15,8 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 - Append after restart (no overwrite)
 - Integration tests for persistence + recovery
 - Minimal TCP interface (server + basic protocol)
-- Define simple command format (PRODUCE / FETCH); **framed wire v1** with handshake (`HERBATKA WIRE/1`) + legacy first-line newline mode (`docs/tcp-wire-protocol.md`)
-- Three logical channels (heartbeat / control / telemetry) as **topic naming only** — see [logical-channels.md](logical-channels.md); broker unchanged
+- Define simple command format (PRODUCE / FETCH); **framed wire v1** with handshake (`HERBATKA WIRE/1`) + legacy first-line newline mode (`docs/reference/tcp-wire-protocol.md`)
+- Three logical channels (heartbeat / control / telemetry) as **topic naming only** — see [logical-channels.md](../reference/logical-channels.md); broker unchanged
 - Canonical **Protobuf** shapes for those lanes (`proto/herbatka_fleet.proto`, `herbatka::generated_schemas`); payload bytes inside framed bodies; default demos stay JSON on topic `events`
 - First manual end-to-end test (e.g. via netcat)
 - Simple CLI producer (send messages over TCP)
@@ -50,6 +50,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
  - refactor startup_discovery
  - CI guardrails: `fmt` / `clippy -D warnings` / `cargo doc` (with `RUSTDOCFLAGS=-D warnings`) / `test` on push to `main`/`master` and `pull_request` into `main`; toolchain pinned via `rust-toolchain.toml` and `rust-version` in `Cargo.toml`.
  - `Cargo.toml` package metadata for discovery / future publish: `description`, `license` (MIT), `repository`, `readme`, `keywords`, `categories`.
+ - Docs reorganized into `docs/reference/` (specs + guides) and `docs/status/` (status, roadmap, benchmarks); concept docs (`why`/`what`/`how`) stay at `docs/` root.
  - Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
 
 ## In Progress
@@ -57,14 +58,14 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 ## Next Up
 - Replace expect in load_topic.rs with Err
 - Stub CHANGELOG.md
-- subdirectories for docs
 
 ## Later (TODO, not now)
  
 - **Protobuf on the wire** (replacing framed layout with protobuf RPC) — not the same as payload protobuf inside today’s frame body; only if a new protocol version is desired
 - QUIC transport
-- Bevy UI integration?
+- two additional testscenarios: (1. was carfleet,)  2. stock market, 3. logistics data
 - seperate project to 3 projects, broker, simulation, ui
+- Bevy UI integration? (in seperated ui project, or cancel)
 - ui dark mode/bright mode
 - Real IoT client (Ox64)
 
@@ -77,7 +78,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 ## Notes
 
 - Startup replay summary log includes `closed_partial_replay_used` and `closed_partial_replay_fallback` (non-tail sparse seek) alongside existing `tail_partial_*` fields.
-- Startup replay benchmark (2026-05-01, `scripts/startup_replay_bench.ps1 -Iterations 1`): metadata-skip ~`0.371s`, fallback-decode ~`0.344s` (single runs; see `docs/benchmarks.md`).
+- Startup replay benchmark (2026-05-01, `scripts/startup_replay_bench.ps1 -Iterations 1`): metadata-skip ~`0.371s`, fallback-decode ~`0.344s` (single runs; see `docs/status/benchmarks.md`).
 - Startup replay benchmark (2026-04-27, `scripts/startup_replay_bench.ps1 -Iterations 3`):
   - metadata-skip-startup-path avg: `0.327s`
   - fallback-decode-startup-path avg: `0.333s`
@@ -86,7 +87,7 @@ Persistence and recovery baseline -> moving toward external access (TCP)
   - current (with sparse-index startup changes) full test avg: `25.761s` (`+0.294s`, `+1.15%`)
   - restart phase markers (`restart_elapsed_ms`) improved on average: baseline `~215ms` -> current `~203ms` (`-12ms`, `~5.6%`)
   - interpretation: test runtime is dominated by data generation/write cost; restart-only marker is the better signal for startup benefit.
-- Benchmark history: `docs/benchmarks.md`
+- Benchmark history: `docs/status/benchmarks.md`
 - Tests passing (`cargo test`, `cargo test --test broker_persistence`) after 2026-05-01 startup seek extension
 - Focus: keep core minimal, avoid premature features
 - Philosophy: build only what is needed now
