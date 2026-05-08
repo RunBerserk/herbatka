@@ -29,5 +29,9 @@ it is not an replacement for Kafka ;)
 ## Success Criteria
 lightweight, fast, can handle 1 mio events (eg. 1mio x car telemetry)
 
+## Philosophy
+- Focus: keep core minimal, avoid premature features.
+- Build only what is needed now.
+
 ###
 template generated with nooj

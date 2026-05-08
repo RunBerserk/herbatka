@@ -35,16 +35,4 @@ History extracted to [done.md](done.md).
 ## Notes
 
 - Startup replay summary log includes `closed_partial_replay_used` and `closed_partial_replay_fallback` (non-tail sparse seek) alongside existing `tail_partial_*` fields.
-- Startup replay benchmark (2026-05-01, `scripts/startup_replay_bench.ps1 -Iterations 1`): metadata-skip ~`0.371s`, fallback-decode ~`0.344s` (single runs; see `docs/status/benchmarks.md`).
-- Startup replay benchmark (2026-04-27, `scripts/startup_replay_bench.ps1 -Iterations 3`):
-  - metadata-skip-startup-path avg: `0.327s`
-  - fallback-decode-startup-path avg: `0.333s`
-- A/B benchmark (2026-04-27, `scripts/startup_ab_speed.ps1 -Iterations 3`, dataset: `80,000` messages, payload `128B`, `segment_max_bytes=4096`):
-  - baseline (before sparse-index startup changes) full test avg: `25.467s`
-  - current (with sparse-index startup changes) full test avg: `25.761s` (`+0.294s`, `+1.15%`)
-  - restart phase markers (`restart_elapsed_ms`) improved on average: baseline `~215ms` -> current `~203ms` (`-12ms`, `~5.6%`)
-  - interpretation: test runtime is dominated by data generation/write cost; restart-only marker is the better signal for startup benefit.
-- Benchmark history: `docs/status/benchmarks.md`
-- Tests passing (`cargo test`, `cargo test --test broker_persistence`) after 2026-05-01 startup seek extension
-- Focus: keep core minimal, avoid premature features
-- Philosophy: build only what is needed now
+- Benchmark history: [benchmarks.md](benchmarks.md).
