@@ -12,11 +12,8 @@ History extracted to [done.md](done.md).
 
 ## In Progress
 
-## Next Up
-- Stub CHANGELOG.md
-
 ## Later (TODO, not now)
- 
+- versioning 
 - **Protobuf on the wire** (replacing framed layout with protobuf RPC) — not the same as payload protobuf inside today’s frame body; only if a new protocol version is desired
 - QUIC transport
 - two additional testscenarios: (1. was carfleet,)  2. stock market, 3. logistics data
