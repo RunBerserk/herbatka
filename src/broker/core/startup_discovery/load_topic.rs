@@ -225,7 +225,12 @@ pub(super) fn load_topic_state(broker: &Broker, topic: &str) -> Result<TopicStat
             ClosedSkipDecision::SkipTrusted => {
                 let trusted = checkpoint_by_base
                     .get(&segment.base_offset)
-                    .expect("trusted segment must have checkpoint entry");
+                    .ok_or_else(|| {
+                        BrokerError::Io(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "trusted segment missing checkpoint entry",
+                        ))
+                    })?;
                 let replay = startup::skip_trusted_closed_segment(
                     &segment.path,
                     &mut log,

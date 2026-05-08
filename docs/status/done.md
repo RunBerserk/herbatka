@@ -46,3 +46,4 @@ History of completed work. New entries land at the bottom; no entries are remove
 - `Cargo.toml` package metadata for discovery / future publish: `description`, `license` (MIT), `repository`, `readme`, `keywords`, `categories`.
 - Docs reorganized into `docs/reference/` (specs + guides) and `docs/status/` (status, roadmap, benchmarks); concept docs (`why`/`what`/`how`) stay at `docs/` root.
 - Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
+- Removed startup panic footgun in `load_topic_state`: replaced `expect("trusted segment must have checkpoint entry")` with a structured `BrokerError::Io(InvalidData)` so a violated invariant returns an error instead of crashing the broker on startup.

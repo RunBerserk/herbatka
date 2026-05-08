@@ -13,7 +13,6 @@ History extracted to [done.md](done.md).
 ## In Progress
 
 ## Next Up
-- Replace expect in load_topic.rs with Err
 - Stub CHANGELOG.md
 
 ## Later (TODO, not now)
