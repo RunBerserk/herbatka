@@ -21,11 +21,12 @@ History extracted to [done.md](done.md).
 
 
 ## Later (TODO, not now)
-- versioning 
+
 - **Protobuf on the wire** (replacing framed layout with protobuf RPC) — not the same as payload protobuf inside today’s frame body; only if a new protocol version is desired
 - QUIC transport
 - two additional testscenarios: (1. was carfleet,)  2. stock market, 3. logistics data
- 
+- versioning 
+- better ui ux, maybe some information in tabs
 - Bevy UI integration? (in seperated ui project, or cancel)
 - ui dark mode/bright mode
 - Real IoT client (Ox64)
