@@ -6,16 +6,34 @@ use std::fmt;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Request {
-    Produce { topic: String, payload: Vec<u8> },
-    Fetch { topic: String, offset: u64 },
+    Produce {
+        topic: String,
+        payload: Vec<u8>,
+    },
+    Fetch {
+        topic: String,
+        offset: u64,
+    },
+    /// Framed wire only: topic offset range (`min_retained_offset`, `exclusive_end`).
+    TopicBounds {
+        topic: String,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Response {
     OkOffset(u64),
-    Message { offset: u64, payload: Vec<u8> },
+    Message {
+        offset: u64,
+        payload: Vec<u8>,
+    },
     None,
     Error(String),
+    /// Framed wire only: `exclusive_end` is the next offset that will be assigned on produce.
+    TopicBounds {
+        min_offset: u64,
+        exclusive_end: u64,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -110,6 +128,7 @@ pub fn format_response(response: &Response) -> String {
         }
         Response::None => "NONE\n".to_string(),
         Response::Error(reason) => format!("ERR {reason}\n"),
+        Response::TopicBounds { .. } => "ERR topic bounds not available in line mode\n".to_string(),
     }
 }
 

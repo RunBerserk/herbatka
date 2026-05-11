@@ -110,6 +110,11 @@ impl Broker {
     ) -> Result<Vec<Message>, BrokerError> {
         public_api::fetch_batch(self, topic, offset, limit)
     }
+
+    /// Minimum retained offset and exclusive end (next offset) for a topic.
+    pub fn topic_offset_range(&self, topic: &str) -> Result<(u64, u64), BrokerError> {
+        public_api::topic_offset_range(self, topic)
+    }
 }
 
 impl Broker {

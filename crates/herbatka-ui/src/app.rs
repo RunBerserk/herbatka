@@ -93,6 +93,8 @@ struct UiShellApp {
     sim_child: Option<Child>,
     /// Optional simulator seed from UI input (`None` keeps simulator default behavior).
     sim_seed_input: String,
+    /// Counts successful broker poll cycles (for periodic topic-range sync).
+    bounds_tick: u64,
 }
 
 enum ConnectionState {
@@ -126,7 +128,36 @@ impl UiShellApp {
             broker_child: None,
             sim_child: None,
             sim_seed_input: String::new(),
+            bounds_tick: 0,
         }
+    }
+
+    /// Reset read cursor and fleet state (e.g. after wiping `data/logs` or a shorter on-disk log).
+    fn resync_read_head(&mut self) {
+        self.next_offset = 0;
+        self.replay_start_offset = 0;
+        self.parse_errors = 0;
+        self.fleet.clear();
+        self.selected_id = None;
+        self.follow_selected = false;
+        self.map_viewport = None;
+        self.broker_client.reset_connection();
+        self.force_reconnect_now();
+        self.last_poll_at = Instant::now() - POLL_INTERVAL;
+    }
+
+    /// Align `next_offset` with broker retention and log length (see framed `TOPIC_BOUNDS`).
+    fn clamp_next_offset(next_offset: u64, min_off: u64, exclusive_end: u64) -> u64 {
+        if exclusive_end == 0 {
+            return 0;
+        }
+        if next_offset < min_off {
+            return min_off;
+        }
+        if next_offset > exclusive_end {
+            return min_off;
+        }
+        next_offset
     }
 
     fn refresh_child_states(&mut self) {
@@ -230,6 +261,14 @@ impl UiShellApp {
                         self.parse_errors = self.parse_errors.saturating_add(1);
                     }
                     self.next_offset = offset.saturating_add(1);
+                }
+
+                self.bounds_tick = self.bounds_tick.wrapping_add(1);
+                if self.bounds_tick.is_multiple_of(8)
+                    && let Ok((min_off, exclusive_end)) = self.broker_client.fetch_topic_bounds()
+                {
+                    self.next_offset =
+                        Self::clamp_next_offset(self.next_offset, min_off, exclusive_end);
                 }
             }
             Err(reason) => {
@@ -478,13 +517,24 @@ impl UiShellApp {
             });
     }
 
-    fn render_fleet_summary(&self, ui: &mut egui::Ui) {
+    fn render_fleet_summary(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.label(format!("Fleet (read-only): {} vehicles", self.fleet.len()));
             ui.small(format!(
                 "topic={}, next_offset={}, replay_start_offset={}, parse_errors={}",
                 DEFAULT_TOPIC, self.next_offset, self.replay_start_offset, self.parse_errors
             ));
+            ui.horizontal(|ui| {
+                let resync = ui
+                    .button("Resync read position")
+                    .on_hover_text(
+                        "Reset read cursor to offset 0 and clear the map. Use after wiping data/logs, \
+                         restarting the broker with a shorter log, or if the map stays empty while connected.",
+                    );
+                if resync.clicked() {
+                    self.resync_read_head();
+                }
+            });
         });
     }
 
@@ -542,7 +592,14 @@ impl UiShellApp {
                 {
                     self.fetch_from_broker(1);
                 }
-                if ui.button("Replay from start").clicked() {
+                if ui
+                    .button("Replay from session mark")
+                    .on_hover_text(
+                        "Jumps to `replay_start_offset` (set when Simulation Start was last clicked), \
+                         not necessarily topic offset 0. Use Resync read position or produce from offset 0 for a full replay.",
+                    )
+                    .clicked()
+                {
                     self.next_offset = self.replay_start_offset;
                     self.reset_playback_view();
                     self.last_poll_at = Instant::now() - POLL_INTERVAL;
@@ -554,7 +611,7 @@ impl UiShellApp {
                 "playing"
             };
             ui.small(format!(
-                "Playback: {status}. Use Step - / Step + for single-event navigation."
+                "Playback: {status}. Step - / Step + when paused. Session mark is set when you start the simulator from this UI."
             ));
         });
     }
@@ -682,7 +739,7 @@ impl UiShellApp {
                     match broker_subprocess::spawn_broker(&self.log_tx) {
                         Ok(child) => {
                             self.broker_child = Some(child);
-                            self.force_reconnect_now();
+                            self.resync_read_head();
                             self.connection = ConnectionState::Disconnected {
                                 reason: "broker started from UI; connecting...".to_string(),
                             };
@@ -703,6 +760,7 @@ impl UiShellApp {
                 }
                 if ui.add_enabled(running, egui::Button::new("Stop")).clicked() {
                     Self::stop_child(&mut self.broker_child);
+                    // Read cursor is unchanged on Stop; use **Resync read position** if you replaced on-disk logs.
                     self.connection = ConnectionState::Disconnected {
                         reason: "broker stopped from UI".to_string(),
                     };
@@ -865,10 +923,27 @@ impl UiShellApp {
             );
 
             if self.fleet.is_empty() {
+                let mut lines = vec![
+                    "No telemetry yet.".to_string(),
+                    "Ensure the broker is running and JSON fleet events exist on this topic."
+                        .to_string(),
+                ];
+                if self.parse_errors > 0 {
+                    lines.push(format!(
+                        "Parse errors: {} — payloads must be FleetEvent JSON.",
+                        self.parse_errors
+                    ));
+                } else if matches!(self.connection, ConnectionState::Connected { .. }) {
+                    lines.push(
+                        "If the broker log was reset while this UI stayed open, click Resync read position."
+                            .to_string(),
+                    );
+                }
+                let block = lines.join("\n");
                 painter.text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    "No telemetry yet",
+                    block,
                     egui::TextStyle::Body.resolve(ui.style()),
                     ui.visuals().text_color(),
                 );

@@ -134,6 +134,22 @@ fn dispatch_request(request: Request, broker: &Arc<Mutex<Broker>>) -> Response {
     match request {
         Request::Produce { topic, payload } => handle_produce(&topic, &payload, broker),
         Request::Fetch { topic, offset } => handle_fetch(&topic, offset, broker),
+        Request::TopicBounds { topic } => handle_topic_bounds(&topic, broker),
+    }
+}
+
+fn handle_topic_bounds(topic: &str, broker: &Arc<Mutex<Broker>>) -> Response {
+    let broker_guard = match broker.lock() {
+        Ok(guard) => guard,
+        Err(_) => return Response::Error("internal lock error".to_string()),
+    };
+
+    match broker_guard.topic_offset_range(topic) {
+        Ok((min_offset, exclusive_end)) => Response::TopicBounds {
+            min_offset,
+            exclusive_end,
+        },
+        Err(e) => map_broker_error(e),
     }
 }
 

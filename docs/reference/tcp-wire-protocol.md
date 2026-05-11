@@ -69,6 +69,7 @@ Invalid `version` or non-zero `flags` (v1) result in the server closing the conn
 |------|------|------------------|
 | `1` | Produce | `topic_len: u16 LE`, `topic: UTF-8` (`topic_len` bytes), `body_len: u32 LE`, `body: [u8]` (`body_len` bytes). `body` may be empty only if `body_len == 0`; `topic` must not be empty. |
 | `2` | Fetch | `topic_len: u16 LE`, `topic: UTF-8`, `offset: u64 LE` |
+| `3` | TopicBounds | `topic_len: u16 LE`, `topic: UTF-8` only (framed-only; no legacy line form). Returns readable offset range for the topic. |
 
 ### Server → client ops and bodies
 
@@ -78,6 +79,7 @@ Invalid `version` or non-zero `flags` (v1) result in the server closing the conn
 | `17` | Message | Fetch returned a record | `offset: u64 LE`, `body_len: u32 LE`, `body` (`body_len` bytes) — raw message bytes |
 | `18` | None | No message at offset | empty |
 | `19` | Error | Request failed | `reason_len: u32 LE`, `reason: UTF-8` (`reason_len` bytes) |
+| `20` | TopicRange | Reply to TopicBounds | `min_offset: u64 LE`, `exclusive_end: u64 LE` — valid `FETCH` offsets satisfy `min_offset <= offset < exclusive_end`; `exclusive_end` is the next offset assigned on produce. |
 
 Responses use the same 8-byte envelope as requests.
 

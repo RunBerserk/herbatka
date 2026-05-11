@@ -1,7 +1,8 @@
 use herbatka::broker::core::Broker;
 use herbatka::tcp::command::Response;
 use herbatka::tcp::frame::{
-    HANDSHAKE_CLIENT_V1, decode_response_frame, encode_fetch, encode_produce, read_frame,
+    HANDSHAKE_CLIENT_V1, decode_response_frame, encode_fetch, encode_produce, encode_topic_bounds,
+    read_frame,
 };
 use herbatka::tcp::server::handle_client;
 use std::io::{BufRead, BufReader, Write};
@@ -174,6 +175,50 @@ fn tcp_framed_handshake_produce_fetch_roundtrip() {
     client.flush().expect("flush fetch tail");
     let resp3 = read_frame(&mut reader).expect("fetch none");
     assert_eq!(decode_response_frame(&resp3).unwrap(), Response::None);
+
+    drop(reader);
+    drop(client);
+    server_thread.join().expect("join");
+}
+
+#[test]
+fn tcp_framed_topic_bounds_roundtrip() {
+    let dir = tcp_test_dir("topic_bounds");
+    let broker = Arc::new(Mutex::new(Broker::with_data_dir(dir)));
+    let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
+
+    let mut client = TcpStream::connect(addr).expect("connect");
+    let mut reader = BufReader::new(client.try_clone().expect("clone"));
+
+    client
+        .write_all(HANDSHAKE_CLIENT_V1)
+        .expect("handshake write");
+    client.flush().expect("flush handshake");
+    let mut ack = String::new();
+    reader.read_line(&mut ack).expect("ack read");
+    assert_eq!(
+        ack.trim_end_matches(['\r', '\n']),
+        "HERBATKA OK/1",
+        "unexpected ack: {ack:?}"
+    );
+
+    let p_frame = encode_produce("bx", b"x").unwrap();
+    client.write_all(&p_frame).expect("produce");
+    client.flush().expect("flush produce");
+    let r1 = read_frame(&mut reader).expect("produce response");
+    assert_eq!(decode_response_frame(&r1).unwrap(), Response::OkOffset(0));
+
+    let b_frame = encode_topic_bounds("bx").unwrap();
+    client.write_all(&b_frame).expect("bounds");
+    client.flush().expect("flush bounds");
+    let r2 = read_frame(&mut reader).expect("bounds response");
+    assert_eq!(
+        decode_response_frame(&r2).unwrap(),
+        Response::TopicBounds {
+            min_offset: 0,
+            exclusive_end: 1,
+        }
+    );
 
     drop(reader);
     drop(client);

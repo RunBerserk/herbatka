@@ -116,6 +116,15 @@ pub(super) fn produce(
     Ok(offset)
 }
 
+/// Returns `(min_retained_offset, exclusive_end)` for reads; valid message offsets satisfy
+/// `min <= offset < exclusive_end`.
+pub(super) fn topic_offset_range(broker: &Broker, topic: &str) -> Result<(u64, u64), BrokerError> {
+    let state = broker.topics.get(topic).ok_or(BrokerError::UnknownTopic)?;
+    let min_off = super::segment_fetch::topic_min_offset(state);
+    let exclusive_end = super::segment_fetch::topic_exclusive_end(state);
+    Ok((min_off, exclusive_end))
+}
+
 pub(super) fn fetch(
     broker: &Broker,
     topic: &str,

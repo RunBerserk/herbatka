@@ -116,5 +116,8 @@ fn send_fetch_and_handle(
         Response::OkOffset(_) => Err(format!(
             "unexpected OkOffset response for FETCH at offset {offset}"
         )),
+        Response::TopicBounds { .. } => Err(
+            "unexpected TopicBounds response for FETCH (wrong request op)".to_string(),
+        ),
     }
 }

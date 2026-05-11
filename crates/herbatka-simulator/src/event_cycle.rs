@@ -76,7 +76,7 @@ pub(super) fn execute_event_cycle(
             summary.non_ok_responses += 1;
             Ok(())
         }
-        Response::None | Response::Message { .. } => {
+        Response::None | Response::Message { .. } | Response::TopicBounds { .. } => {
             summary.produced_err += 1;
             summary.non_ok_responses += 1;
             Err(format!(

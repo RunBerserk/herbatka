@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use herbatka_wire::tcp::command::Response;
 use herbatka_wire::tcp::frame::{
-    decode_response_frame, encode_fetch, perform_client_handshake, read_frame,
+    decode_response_frame, encode_fetch, encode_topic_bounds, perform_client_handshake, read_frame,
 };
 
 #[derive(Debug)]
@@ -58,6 +58,18 @@ impl BrokerClient {
             topic: topic.into(),
             connection: None,
         }
+    }
+
+    /// Drop the TCP session (next operation reconnects).
+    pub fn reset_connection(&mut self) {
+        self.connection = None;
+    }
+
+    /// Returns `(min_retained_offset, exclusive_end)` for the client topic.
+    pub fn fetch_topic_bounds(&mut self) -> Result<(u64, u64), String> {
+        let topic = self.topic.clone();
+        let connection = self.ensure_connected()?;
+        topic_bounds_on_connection(connection, &topic)
     }
 
     pub fn poll_from_offset(
@@ -130,6 +142,34 @@ impl BrokerClient {
     }
 }
 
+fn topic_bounds_on_connection(
+    connection: &mut BrokerConnection,
+    topic: &str,
+) -> Result<(u64, u64), String> {
+    let frame = encode_topic_bounds(topic).map_err(|e| e.to_string())?;
+    connection
+        .writer
+        .write_all(&frame)
+        .map_err(|e| classify_io_error("write", &e))?;
+    connection
+        .writer
+        .flush()
+        .map_err(|e| classify_io_error("flush", &e))?;
+
+    let buf = read_frame(&mut connection.reader).map_err(|e| e.to_string())?;
+
+    let response =
+        decode_response_frame(buf.as_slice()).map_err(|e| format!("broker wire error: {e}"))?;
+    match response {
+        Response::TopicBounds {
+            min_offset,
+            exclusive_end,
+        } => Ok((min_offset, exclusive_end)),
+        Response::Error(reason) => Err(format!("broker error: {reason}")),
+        _ => Err("unexpected response to topic bounds".to_string()),
+    }
+}
+
 fn fetch_once_on_connection(
     connection: &mut BrokerConnection,
     topic: &str,
@@ -160,5 +200,6 @@ fn parse_framed_response(buf: &[u8]) -> Result<BrokerResponse, String> {
         }),
         Response::Error(reason) => Err(format!("broker error: {reason}")),
         Response::OkOffset(_) => Err("unexpected OkOffset response to FETCH".to_string()),
+        Response::TopicBounds { .. } => Err("unexpected TopicBounds response to FETCH".to_string()),
     }
 }

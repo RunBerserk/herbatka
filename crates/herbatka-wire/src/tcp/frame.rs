@@ -16,11 +16,15 @@ pub const HEADER_LEN: usize = 8;
 
 pub const OP_PRODUCE: u8 = 1;
 pub const OP_FETCH: u8 = 2;
+/// Client request: topic offset visible range (min retained offset + exclusive end).
+pub const OP_TOPIC_BOUNDS: u8 = 3;
 
 pub const OP_OK_OFFSET: u8 = 16;
 pub const OP_MSG: u8 = 17;
 pub const OP_NONE: u8 = 18;
 pub const OP_ERR: u8 = 19;
+/// Server response to [`OP_TOPIC_BOUNDS`]: payload is two `u64` LE (`min_offset`, `exclusive_end`).
+pub const OP_TOPIC_RANGE: u8 = 20;
 
 pub const MAX_FRAME_PAYLOAD: u32 = 16 * 1024 * 1024;
 pub const MAX_TOPIC_BYTES: usize = 4096;
@@ -165,6 +169,31 @@ pub fn encode_produce_checked(topic_utf8: &[u8], body: &[u8]) -> Result<Vec<u8>,
     Ok(out)
 }
 
+/// Framed request: valid offsets for `FETCH` are `min_offset <= offset < exclusive_end`;
+/// tail wait uses `offset == exclusive_end`.
+pub fn encode_topic_bounds(topic: &str) -> Result<Vec<u8>, WireError> {
+    let topic_utf8 = topic.as_bytes();
+    if topic_utf8.is_empty() {
+        return Err(WireError::TopicEmpty);
+    }
+    if topic_utf8.len() > MAX_TOPIC_BYTES || topic_utf8.len() > u16::MAX as usize {
+        return Err(WireError::TopicTooLarge(topic_utf8.len()));
+    }
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&(topic_utf8.len() as u16).to_le_bytes());
+    payload.extend_from_slice(topic_utf8);
+    let inner_len_u32: u32 = payload
+        .len()
+        .try_into()
+        .map_err(|_| WireError::PayloadTooLarge(u32::MAX))?;
+    validate_inner_payload_budget(inner_len_u32)?;
+    let mut out = Vec::with_capacity(HEADER_LEN + payload.len());
+    out.resize(HEADER_LEN, 0);
+    write_header(&mut out, OP_TOPIC_BOUNDS, inner_len_u32)?;
+    out.extend_from_slice(&payload);
+    Ok(out)
+}
+
 pub fn encode_fetch(topic: &str, offset: u64) -> Result<Vec<u8>, WireError> {
     let topic_utf8 = topic.as_bytes();
     if topic_utf8.is_empty() {
@@ -249,6 +278,16 @@ pub fn encode_response(resp: &Response) -> Result<Vec<u8>, WireError> {
             out.extend_from_slice(r);
             Ok(out)
         }
+        Response::TopicBounds {
+            min_offset,
+            exclusive_end,
+        } => {
+            let mut out = vec![0u8; HEADER_LEN + 16];
+            write_header(&mut out, OP_TOPIC_RANGE, 16)?;
+            out[HEADER_LEN..HEADER_LEN + 8].copy_from_slice(&min_offset.to_le_bytes());
+            out[HEADER_LEN + 8..HEADER_LEN + 16].copy_from_slice(&exclusive_end.to_le_bytes());
+            Ok(out)
+        }
     }
 }
 
@@ -274,6 +313,25 @@ fn decode_produce_body(payload: &[u8]) -> Result<Request, WireError> {
         topic,
         payload: body.to_vec(),
     })
+}
+
+fn decode_topic_only(payload: &[u8]) -> Result<String, WireError> {
+    let mut c = 0usize;
+    let topic_len = read_u16(payload, &mut c)? as usize;
+    if topic_len == 0 {
+        return Err(WireError::TopicEmpty);
+    }
+    if topic_len > MAX_TOPIC_BYTES {
+        return Err(WireError::TopicTooLarge(topic_len));
+    }
+    let topic_bytes = read_exact_slice(payload, &mut c, topic_len)?;
+    let topic = std::str::from_utf8(topic_bytes)
+        .map_err(|_| WireError::Utf8Topic)?
+        .to_string();
+    if c != payload.len() {
+        return Err(WireError::Decode("trailing bytes after topic"));
+    }
+    Ok(topic)
 }
 
 fn decode_fetch_body(payload: &[u8]) -> Result<Request, WireError> {
@@ -320,6 +378,9 @@ pub fn decode_client_frame(buf: &[u8]) -> Result<Request, WireError> {
     match op {
         OP_PRODUCE => decode_produce_body(payload),
         OP_FETCH => decode_fetch_body(payload),
+        OP_TOPIC_BOUNDS => Ok(Request::TopicBounds {
+            topic: decode_topic_only(payload)?,
+        }),
         _ => Err(WireError::UnknownOp(op)),
     }
 }
@@ -376,6 +437,17 @@ pub fn decode_response_frame(buf: &[u8]) -> Result<Response, WireError> {
                 .map_err(|_| WireError::Utf8Topic)?
                 .to_string();
             Ok(Response::Error(reason))
+        }
+        OP_TOPIC_RANGE => {
+            if p.len() != 16 {
+                return Err(WireError::Decode("topic range body size"));
+            }
+            let min_offset = read_u64(p, &mut c)?;
+            let exclusive_end = read_u64(p, &mut c)?;
+            Ok(Response::TopicBounds {
+                min_offset,
+                exclusive_end,
+            })
         }
         _ => Err(WireError::UnknownOp(op)),
     }
@@ -447,6 +519,24 @@ pub fn read_first_line<R: Read>(r: &mut R) -> Result<Vec<u8>, WireError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tcp::command::{Request, Response};
+
+    #[test]
+    fn roundtrip_topic_bounds() {
+        let f = encode_topic_bounds("events").unwrap();
+        assert_eq!(
+            decode_client_frame(&f).unwrap(),
+            Request::TopicBounds {
+                topic: "events".into(),
+            }
+        );
+        let resp = Response::TopicBounds {
+            min_offset: 3,
+            exclusive_end: 100,
+        };
+        let wire = encode_response(&resp).unwrap();
+        assert_eq!(decode_response_frame(&wire).unwrap(), resp);
+    }
 
     #[test]
     fn roundtrip_produce_binary_body() {
