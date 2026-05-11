@@ -8,6 +8,7 @@ use std::sync::mpsc;
 pub enum LogSource {
     Broker,
     Simulator,
+    Ui,
 }
 
 /// Which stream the line was read from.
@@ -31,6 +32,7 @@ impl LogLine {
         let s = match self.source {
             LogSource::Broker => "broker",
             LogSource::Simulator => "sim",
+            LogSource::Ui => "ui",
         };
         let t = match self.stream {
             LogStream::Stdout => "out",
@@ -141,6 +143,16 @@ mod tests {
         let t = r.as_single_text();
         assert!(!t.contains("a"));
         assert!(t.contains("b") && t.contains("c"));
+    }
+
+    #[test]
+    fn display_line_includes_ui_source() {
+        let line = LogLine {
+            source: LogSource::Ui,
+            stream: LogStream::Stdout,
+            text: "hello\n".to_string(),
+        };
+        assert!(line.display_line().starts_with("[ui][out]"));
     }
 
     #[test]

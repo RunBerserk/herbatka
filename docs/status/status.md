@@ -11,9 +11,11 @@ Persistence and recovery baseline -> moving toward external access (TCP)
 History extracted to [done.md](done.md).
 
 - Cargo **workspace**: `herbatka` (broker), `herbatka-simulator`, `herbatka-ui`, shared **`herbatka-wire`** (TCP framing, commands, fleet protobuf). Repo root `Cargo.toml` is workspace-only; sources live under `crates/`.
+- **UI fleet map** recovery when read cursor is past a shorter or reset log: `TopicBounds` on the wire, periodic clamp, **Resync read position**, reset when starting broker from UI (`herbatka-ui`).
+- **UI local data**: clear on-disk `data/logs/<topic>` (default `events`) when embedded broker/sim are stopped; **Quick demo load** runs a fixed short simulator (burst / ramp / 5s / seed 42).
 
 ## In Progress
--bugfix(UI fleet map stays empty (no vehicle markers) when the events topic has no messages on disk or the broker isn’t serving fresh fetches; recovery: clear data/logs/events if needed, start the broker, then reload the topic with the simulator (or producer).)
+
 ## Next Up
 
 

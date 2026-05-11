@@ -7,6 +7,7 @@ use eframe::egui;
 
 use super::broker_client::BrokerClient;
 use super::broker_subprocess;
+use super::data_dir;
 use super::fleet_stats::compute_fleet_stats;
 use super::model::{VehicleSnapshot, apply_payload};
 use super::process_log::{
@@ -513,8 +514,88 @@ impl UiShellApp {
                     self.render_broker_controls(ui);
                     ui.add_space(8.0);
                     self.render_sim_controls(ui);
+                    ui.add_space(8.0);
+                    self.render_local_data_controls(ui);
                 });
             });
+    }
+
+    fn render_local_data_controls(&mut self, ui: &mut egui::Ui) {
+        let broker_running = self.broker_child.is_some();
+        let sim_running = self.sim_child.is_some();
+        let can_touch_disk = !broker_running && !sim_running;
+
+        ui.group(|ui| {
+            ui.label("Local topic data");
+            ui.horizontal(|ui| {
+                let clear = ui
+                    .add_enabled(can_touch_disk, egui::Button::new("Clear topic disk data"))
+                    .on_hover_text(
+                        "Deletes the on-disk folder for the default topic (`data/logs/events`). \
+                         Stop the embedded broker and simulator first. \
+                         Assumes default `herbatka.toml` layout at the repo root; custom HERBATKA_CONFIG paths are not detected.",
+                    );
+                if clear.clicked() {
+                    match data_dir::remove_topic_disk_data(DEFAULT_TOPIC) {
+                        Ok(()) => {
+                            self.resync_read_head();
+                            let _ = self.log_tx.send(LogLine {
+                                source: LogSource::Ui,
+                                stream: LogStream::Stdout,
+                                text: format!(
+                                    "UI: removed on-disk topic `{DEFAULT_TOPIC}` under data/logs\n"
+                                ),
+                            });
+                        }
+                        Err(e) => {
+                            let _ = self.log_tx.send(LogLine {
+                                source: LogSource::Ui,
+                                stream: LogStream::Stderr,
+                                text: format!("UI: clear topic data failed: {e}\n"),
+                            });
+                        }
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                let demo = ui
+                    .add_enabled(!sim_running, egui::Button::new("Quick demo load"))
+                    .on_hover_text(
+                        "Runs a short simulator preset: 5s, burst, ramp, vehicles 5, rate 10, seed 42. \
+                         Start the broker first (UI or external).",
+                    );
+                if demo.clicked() {
+                    match simulator_subprocess::spawn_quick_demo_simulator(
+                        &self.log_tx,
+                        DEFAULT_BROKER_ADDR,
+                        DEFAULT_TOPIC,
+                    ) {
+                        Ok(child) => {
+                            self.sim_child = Some(child);
+                            self.replay_start_offset = self.next_offset;
+                            self.playback_paused = false;
+                            self.last_poll_at = Instant::now() - POLL_INTERVAL;
+                            let _ = self.log_tx.send(LogLine {
+                                source: LogSource::Ui,
+                                stream: LogStream::Stdout,
+                                text: "UI: quick demo simulator started (5s, burst, ramp, seed 42)\n"
+                                    .to_string(),
+                            });
+                        }
+                        Err(e) => {
+                            let _ = self.log_tx.send(LogLine {
+                                source: LogSource::Ui,
+                                stream: LogStream::Stderr,
+                                text: format!("UI: quick demo failed: {e}\n"),
+                            });
+                        }
+                    }
+                }
+            });
+            if !can_touch_disk {
+                ui.small("Stop broker and simulator before clearing on-disk data.");
+            }
+        });
     }
 
     fn render_fleet_summary(&mut self, ui: &mut egui::Ui) {
