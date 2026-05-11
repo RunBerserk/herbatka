@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use super::encoding::lossy_utf8_message_body_for_display;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Request {
     Produce {
@@ -124,7 +126,10 @@ pub fn format_response(response: &Response) -> String {
     match response {
         Response::OkOffset(offset) => format!("OK {offset}\n"),
         Response::Message { offset, payload } => {
-            format!("MSG {offset} {}\n", String::from_utf8_lossy(payload))
+            format!(
+                "MSG {offset} {}\n",
+                lossy_utf8_message_body_for_display(payload)
+            )
         }
         Response::None => "NONE\n".to_string(),
         Response::Error(reason) => format!("ERR {reason}\n"),
@@ -185,6 +190,17 @@ mod tests {
         assert_eq!(
             format_response(&Response::Error("bad".to_string())),
             "ERR bad\n".to_string()
+        );
+    }
+
+    #[test]
+    fn format_response_msg_invalid_utf8_is_lossy() {
+        assert_eq!(
+            format_response(&Response::Message {
+                offset: 7,
+                payload: vec![0x80, b'a'],
+            }),
+            concat!("MSG 7 ", "\u{FFFD}", "a\n")
         );
     }
 }

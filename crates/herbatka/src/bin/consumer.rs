@@ -7,6 +7,7 @@ use std::net::TcpStream;
 
 use herbatka::observability;
 use herbatka::tcp::command::Response;
+use herbatka::tcp::encoding::lossy_utf8_message_body_for_display;
 use herbatka::tcp::frame::{
     decode_response_frame, encode_fetch, perform_client_handshake, read_frame,
 };
@@ -70,7 +71,7 @@ fn drain_fetch_loop(addr: &str, topic: &str, mut offset: u64) -> Result<(), Stri
                 payload,
                 next_offset,
             } => {
-                println!("{}", String::from_utf8_lossy(&payload));
+                println!("{}", lossy_utf8_message_body_for_display(&payload));
                 io::stdout()
                     .flush()
                     .map_err(|e| format!("stdout flush failed: {e}"))?;

@@ -16,13 +16,24 @@ Used when the **first line** from the client is **not** the framed-mode handshak
 - **FETCH:** `FETCH <topic> <offset>\n` — topic must not contain whitespace; offset is decimal `u64`.
 - **Responses:** single line each, newline-terminated:
   - `OK <u64 offset>\n`
-  - `MSG <u64 offset> <payload>\n` — payload is the rest of the line after the second space; UTF-8 oriented in practice (broker may have lossy behavior for non‑UTF‑8).
+  - `MSG <u64 offset> <payload>\n` — payload is the rest of the line after the second space; see **Message body encoding** above (lossy UTF-8 when formatting from stored bytes).
   - `NONE\n`
   - `ERR <reason>\n` — human-readable reason.
 
 **Limits:** The server reads the first line with a bounded buffer (64 KiB including newline). Oversize lines are rejected.
 
-**Interoperability caveat:** Binary payloads are **not** reliably representable in legacy `MSG`/`PRODUCE` lines; use framed v1 for opaque bytes.
+**Interoperability caveat:** Binary payloads are **not** reliably representable in legacy `MSG`/`PRODUCE` lines; use framed v1 for opaque bytes. Legacy [`parse_request`](../../crates/herbatka-wire/src/tcp/command.rs) builds PRODUCE payloads from a Unicode line slice (`&str`), so arbitrary binary cannot be submitted on this path anyway.
+
+### Message body encoding (authoritative vs display)
+
+Cross-cutting rule for implementations:
+
+- **Authoritative representation:** a stored/fetched message **body** is **raw bytes** on disk and in framed **Message** responses (`body: [u8]`). Nothing in the broker re-encodes the body for framed clients.
+- **Legacy `MSG` lines:** when the server formats a line-mode `MSG`, the embedded payload segment is produced with a **lossy UTF-8 decode** (invalid sequences become U+FFFD). Payloads containing **NUL** or **newlines** are still unsafe for line-oriented clients; use framed v1 for opaque or binary data.
+- **CLI / UI:** tools that print lines or feed text-oriented parsers (e.g. JSON in the current fleet UI) may apply the same **lossy decode for display or parsing**. That can **change** bytes (replacement characters) without surfacing an error. Structured consumers (e.g. future Protobuf-in-body) should decode from **`Vec<u8>`** or raw frame payload, not from a lossy `String`.
+- **Current fleet JSON producers** (simulator, typical `PRODUCE` text) should send **valid UTF-8** JSON. Non–UTF-8 message bodies are **out of contract** for the JSON-based UI; they may increment parse errors or mis-display.
+
+Reference implementation: [`lossy_utf8_message_body_for_display`](../../crates/herbatka-wire/src/tcp/encoding.rs) in `herbatka-wire` (used for legacy `MSG` formatting and human-oriented clients).
 
 ---
 

@@ -4,6 +4,7 @@ pub mod generated_schemas;
 pub mod observability;
 pub mod tcp {
     pub mod command;
+    pub mod encoding;
     pub mod frame;
     pub mod protocol;
 }

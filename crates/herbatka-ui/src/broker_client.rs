@@ -3,6 +3,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use herbatka_wire::tcp::command::Response;
+use herbatka_wire::tcp::encoding::lossy_utf8_message_body_for_display;
 use herbatka_wire::tcp::frame::{
     decode_response_frame, encode_fetch, encode_topic_bounds, perform_client_handshake, read_frame,
 };
@@ -196,7 +197,7 @@ fn parse_framed_response(buf: &[u8]) -> Result<BrokerResponse, String> {
         Response::None => Ok(BrokerResponse::None),
         Response::Message { offset, payload } => Ok(BrokerResponse::Message {
             offset,
-            payload: String::from_utf8_lossy(&payload).into_owned(),
+            payload: lossy_utf8_message_body_for_display(&payload).into_owned(),
         }),
         Response::Error(reason) => Err(format!("broker error: {reason}")),
         Response::OkOffset(_) => Err("unexpected OkOffset response to FETCH".to_string()),

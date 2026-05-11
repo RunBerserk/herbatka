@@ -13,7 +13,7 @@ History extracted to [done.md](done.md).
 - Cargo **workspace**: `herbatka` (broker), `herbatka-simulator`, `herbatka-ui`, shared **`herbatka-wire`** (TCP framing, commands, fleet protobuf). Repo root `Cargo.toml` is workspace-only; sources live under `crates/`.
 - **UI fleet map** recovery when read cursor is past a shorter or reset log: `TopicBounds` on the wire, periodic clamp, **Resync read position**, reset when starting broker from UI (`herbatka-ui`).
 - **UI local data**: clear on-disk `data/logs/<topic>` (default `events`) when embedded broker/sim are stopped; **Quick demo load** runs a fixed short simulator (burst / ramp / 5s / seed 42).
-
+- wire: lossy UTF-8 display helper + docs
 ## In Progress
 
 ## Next Up
@@ -35,7 +35,7 @@ History extracted to [done.md](done.md).
 
 - Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients. (should quantify under real load before redesigning — pattern unchanged in `crates/herbatka/src/main.rs` + `crates/herbatka/src/tcp/server.rs`.)
 
-- Legacy `MSG` lines still go through lossy UTF‑8 for display; framed v1 returns raw message bytes. (should clarify: legacy text uses **`herbatka_wire::tcp::command::format_response`**; framed **wire** stays raw bytes, but **consumer** and **UI** `broker_client` still **`from_utf8_lossy`** for stdout / `String` payloads.)
+ 
 
 ## Notes
 
