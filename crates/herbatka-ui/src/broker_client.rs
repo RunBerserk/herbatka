@@ -2,8 +2,8 @@ use std::io::Write;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
-use crate::tcp::command::Response;
-use crate::tcp::frame::{
+use herbatka_wire::tcp::command::Response;
+use herbatka_wire::tcp::frame::{
     decode_response_frame, encode_fetch, perform_client_handshake, read_frame,
 };
 

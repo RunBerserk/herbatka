@@ -46,11 +46,11 @@ Protobuf (or other encodings) are **opaque bytes** inside the framed Produce/Fet
 
 | Topic pattern (example) | Suggested protobuf message (`herbatka.fleet`) |
 |-------------------------|---------------------------------------------|
-| `<scope>.heartbeat` | [`FleetHeartbeat`](../../proto/herbatka_fleet.proto) |
-| `<scope>.control` | [`FleetControlEnvelope`](../../proto/herbatka_fleet.proto) |
-| `<scope>.telemetry` | [`FleetTelemetryEvent`](../../proto/herbatka_fleet.proto) |
+| `<scope>.heartbeat` | [`FleetHeartbeat`](../../crates/herbatka-wire/proto/herbatka_fleet.proto) |
+| `<scope>.control` | [`FleetControlEnvelope`](../../crates/herbatka-wire/proto/herbatka_fleet.proto) |
+| `<scope>.telemetry` | [`FleetTelemetryEvent`](../../crates/herbatka-wire/proto/herbatka_fleet.proto) |
 
-Rust types are codegen’d into the crate (see [`src/generated_schemas.rs`](../../src/generated_schemas.rs)). **FleetTelemetryEvent** mirrors the MVP JSON **`FleetEvent`** shape (`vehicle_id`, `ts_ms`, `speed`, `lat`, `lon`) used by simulator/UI demos so consumers can migrate topic-by-topic.
+Rust types are codegen’d in the `herbatka-wire` crate (see [`generated_schemas.rs`](../../crates/herbatka-wire/src/generated_schemas.rs)). **FleetTelemetryEvent** mirrors the MVP JSON **`FleetEvent`** shape (`vehicle_id`, `ts_ms`, `speed`, `lat`, `lon`) used by simulator/UI demos so consumers can migrate topic-by-topic.
 
 **Headers:** persisted [`Message`](../../src/log/message.rs) records may carry **`headers`** (e.g. `content-type`). The TCP server path today attaches **empty** headers; metadata is purely by convention unless the wire gains an optional metadata field later.
 

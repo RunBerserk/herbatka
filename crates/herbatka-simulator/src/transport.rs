@@ -2,7 +2,7 @@ use std::net::TcpStream;
 use std::thread::sleep;
 use std::time::Duration;
 
-use herbatka::tcp::frame::perform_client_handshake;
+use herbatka_wire::tcp::frame::perform_client_handshake;
 
 use super::Summary;
 
@@ -47,5 +47,5 @@ pub(super) fn build_produce_frame_bytes(topic: &str, body: &[u8]) -> Result<Vec<
     if body.is_empty() {
         return Err("payload must not be empty".to_string());
     }
-    herbatka::tcp::frame::encode_produce(topic, body).map_err(|e| e.to_string())
+    herbatka_wire::tcp::frame::encode_produce(topic, body).map_err(|e| e.to_string())
 }

@@ -9,11 +9,11 @@ use std::time::SystemTime;
 
 use crate::broker::core::{Broker, BrokerError};
 use crate::log::message::Message;
-use crate::tcp::frame::{
+use herbatka_wire::tcp::frame::{
     HANDSHAKE_SERVER_ACK_V1, WireError, decode_client_frame, encode_response, read_first_line,
     read_frame, write_frame,
 };
-use crate::tcp::protocol::{Request, Response, format_response, parse_request};
+use herbatka_wire::tcp::protocol::{Request, Response, format_response, parse_request};
 use tracing::{debug, error, info, warn};
 
 pub fn run(addr: &str, broker: Arc<Mutex<Broker>>) -> io::Result<()> {

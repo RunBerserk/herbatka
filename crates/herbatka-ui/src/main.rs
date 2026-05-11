@@ -1,3 +1,3 @@
 fn main() -> eframe::Result<()> {
-    herbatka::ui::run()
+    herbatka_ui::run()
 }

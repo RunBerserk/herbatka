@@ -5,9 +5,9 @@ This harness gives a deterministic, repeatable local check for simulator -> brok
 ## Deterministic Smoke Flow
 
 1. Start broker in terminal A:
-   - `cargo run --bin herbatka`
+   - `cargo run -p herbatka --bin herbatka`
 2. Run simulator in terminal B:
-   - `cargo run --bin simulator -- --addr 127.0.0.1:7000 --topic events --vehicles 5 --rate 10 --duration-secs 5 --scenario steady --load-profile constant --seed 42 --quiet`
+   - `cargo run -p herbatka-simulator --bin simulator -- --addr 127.0.0.1:7000 --topic events --vehicles 5 --rate 10 --duration-secs 5 --scenario steady --load-profile constant --seed 42 --quiet`
 
 Pass condition:
 
@@ -22,11 +22,11 @@ Fail condition:
 ## Minimal Repeatable Verification Commands
 
 - Simulator unit coverage:
-  - `cargo test --bin simulator`
+  - `cargo test -p herbatka-simulator`
 - TCP protocol path:
-  - `cargo test --test tcp_server_smoke`
+  - `cargo test -p herbatka --test tcp_server_smoke`
 - Additional backend confidence:
-  - `cargo test --test consumer_flow --test persistence_flow --test broker_persistence`
+  - `cargo test -p herbatka --test consumer_flow --test persistence_flow --test broker_persistence`
 
 ## Notes
 

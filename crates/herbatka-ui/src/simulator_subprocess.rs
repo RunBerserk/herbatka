@@ -15,7 +15,7 @@ const SIM_DEFAULT_RATE: u64 = 10;
 /// ~24h: simulator requires `--duration-secs`; user stops early via UI **Stop** (`kill`).
 const SIM_DEFAULT_DURATION_SECS: u64 = 24 * 60 * 60;
 
-/// Runs `cargo run -q --bin simulator -- ...` with `current_dir` = repo root.  
+/// Runs `cargo run -q -p herbatka-simulator --bin simulator -- ...` with `current_dir` = workspace repo root.  
 /// On **Stop**, the caller should `kill` the `Child` so reader threads see EOF and exit.
 pub fn spawn_simulator(
     log_tx: &Sender<LogLine>,
@@ -23,11 +23,13 @@ pub fn spawn_simulator(
     topic: &str,
     seed: Option<u64>,
 ) -> Result<Child, String> {
-    let workdir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workdir = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
     let mut command = Command::new("cargo");
     command
         .arg("run")
         .arg("-q")
+        .arg("-p")
+        .arg("herbatka-simulator")
         .arg("--bin")
         .arg("simulator")
         .arg("--")

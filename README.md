@@ -52,13 +52,15 @@ You can override config path with `HERBATKA_CONFIG=/path/to/file.toml`.
 
 **Wire protocol:** In-repo binaries (`producer`, `consumer`, `simulator`, UI) negotiate **framed wire v1** after the first line handshake (`HERBATKA WIRE/1` → `HERBATKA OK/1`), then exchange length‑prefixed binary frames. Sending `PRODUCE …` / `FETCH …` as the **first** line skips the handshake and keeps the legacy newline protocol for that connection (handy for ad‑hoc `telnet`/netcat). Details: [TCP wire protocol](docs/reference/tcp-wire-protocol.md).
 
+This repository is a **Cargo workspace**. From the repo root, pass `-p <package>` (and `--bin <name>` when a package has multiple binaries).
+
 ### Terminal 1 (broker)
 
-`cargo run --bin herbatka`
+`cargo run -p herbatka --bin herbatka`
 
 ### Terminal 2 (producer)
 
-`cargo run --bin producer -- 127.0.0.1:7000 t hello`
+`cargo run -p herbatka --bin producer -- 127.0.0.1:7000 t hello`
 
 Expected:
 
@@ -66,13 +68,13 @@ Expected:
 
 ### Terminal 3 (consumer)
 
-`cargo run --bin consumer -- 127.0.0.1:7000 t 0`
+`cargo run -p herbatka --bin consumer -- 127.0.0.1:7000 t 0`
 
 ## Simulator quickstart
 
 Run simulator with scenario, load profile, and seed:
 
-`cargo run --bin simulator -- --addr 127.0.0.1:7000 --topic events --vehicles 5 --rate 10 --duration-secs 5 --scenario burst --load-profile ramp --seed 42`
+`cargo run -p herbatka-simulator --bin simulator -- --addr 127.0.0.1:7000 --topic events --vehicles 5 --rate 10 --duration-secs 5 --scenario burst --load-profile ramp --seed 42`
 
 Optional flags:
 
@@ -95,7 +97,7 @@ Expected summary format:
 
 Run the UI shell:
 
-`cargo run --bin ui`
+`cargo run -p herbatka-ui --bin herbatka-ui`, or the short alias `cargo run --bin ui` from the repo root.
 
 ## Roadmap notes
 

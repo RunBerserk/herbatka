@@ -10,9 +10,9 @@ pass walls; on collision they stay in-bounds and turn by roughly 90 degrees
 ## Quickstart
 
 1. Start broker:
-   - `cargo run --bin herbatka`
+   - `cargo run -p herbatka --bin herbatka`
 2. Run simulator:
-   - `cargo run --bin simulator -- --addr 127.0.0.1:7000 --topic events --vehicles 5 --rate 10 --duration-secs 5 --scenario burst --load-profile ramp --seed 42`
+   - `cargo run -p herbatka-simulator --bin simulator -- --addr 127.0.0.1:7000 --topic events --vehicles 5 --rate 10 --duration-secs 5 --scenario burst --load-profile ramp --seed 42`
 
 ## Flags
 

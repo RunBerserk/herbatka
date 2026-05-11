@@ -1,23 +1,19 @@
 //! Fleet-style simulator: sends telemetry-shaped events on framed wire v1 (handshake then `PRODUCE` frames).
 //! Default payload is JSON; **`--payload-format protobuf`** emits `FleetTelemetryEvent` protobuf
-//! (`herbatka::generated_schemas`) — align the **`--topic`** with consumers (for example `*.telemetry`).
+//! (`herbatka_wire::generated_schemas`) — align the **`--topic`** with consumers (for example `*.telemetry`).
 //! Usage:
 //!   simulator ... [--payload-format json|protobuf] [--scenario ...] [--load-profile ...] [--seed `<u64>`] [--quiet]
 
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-#[path = "simulator/cli.rs"]
 mod cli;
-#[path = "simulator/event_cycle.rs"]
 mod event_cycle;
-#[path = "simulator/movement.rs"]
 mod movement;
-#[path = "simulator/transport.rs"]
 mod transport;
 
 use event_cycle::execute_event_cycle;
-use herbatka::observability;
+use herbatka_wire::observability;
 use movement::{
     MovementSnapshot, VehicleMotionState, advance_vehicle_with_walls, init_vehicle_motion,
     speed_for_event,
@@ -328,7 +324,7 @@ fn build_event_telemetry_proto(
     speed: u64,
     snapshot: MovementSnapshot,
 ) -> Result<Vec<u8>, String> {
-    use herbatka::generated_schemas::FleetTelemetryEvent;
+    use herbatka_wire::generated_schemas::FleetTelemetryEvent;
     use prost::Message as ProstEncode;
     let ts_ms = 1_700_000_000_000u64.saturating_add(seq.saturating_mul(100));
     let ev = FleetTelemetryEvent {
@@ -488,7 +484,7 @@ mod tests {
 
     #[test]
     fn telemetry_proto_matches_json_field_semantics_roundtrip_decode() {
-        use herbatka::generated_schemas::FleetTelemetryEvent;
+        use herbatka_wire::generated_schemas::FleetTelemetryEvent;
         use prost::Message as ProstMsg;
         let snap = MovementSnapshot {
             lat: 52.000123,
@@ -567,9 +563,12 @@ mod tests {
         let f = build_produce_frame("events", "a\nb").expect("frame");
         assert_eq!(
             f.first().copied(),
-            Some(herbatka::tcp::frame::WIRE_VERSION_V1)
+            Some(herbatka_wire::tcp::frame::WIRE_VERSION_V1)
         );
-        assert_eq!(f.get(1).copied(), Some(herbatka::tcp::frame::OP_PRODUCE));
+        assert_eq!(
+            f.get(1).copied(),
+            Some(herbatka_wire::tcp::frame::OP_PRODUCE)
+        );
     }
 
     #[test]
@@ -584,10 +583,10 @@ mod tests {
             },
         );
         let buf = build_produce_frame("events", &payload).expect("frame");
-        let req = herbatka::tcp::frame::decode_client_frame(&buf).expect("decode");
+        let req = herbatka_wire::tcp::frame::decode_client_frame(&buf).expect("decode");
         assert_eq!(
             req,
-            herbatka::tcp::command::Request::Produce {
+            herbatka_wire::tcp::command::Request::Produce {
                 topic: "events".into(),
                 payload: payload.as_bytes().to_vec(),
             }

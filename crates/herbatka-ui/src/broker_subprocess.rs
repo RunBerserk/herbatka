@@ -8,14 +8,14 @@ use std::thread;
 use super::child_output::pump_read;
 use super::process_log::{LogLine, LogSource, LogStream};
 
-/// Runs `cargo run -q --bin herbatka` with working directory = crate / repo root.  
+/// Runs `cargo run -q -p herbatka --bin herbatka` with working directory = workspace repo root (two levels above this crate).  
 /// Stdout and stderr are read on background threads; on `Stop` the caller should
 /// `kill` the `Child` so the reader threads see EOF and exit.
 pub fn spawn_broker(log_tx: &Sender<LogLine>) -> Result<Child, String> {
-    let workdir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workdir = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
     let mut child = Command::new("cargo")
-        .args(["run", "-q", "--bin", "herbatka"])
-        .current_dir(workdir)
+        .args(["run", "-q", "-p", "herbatka", "--bin", "herbatka"])
+        .current_dir(&workdir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

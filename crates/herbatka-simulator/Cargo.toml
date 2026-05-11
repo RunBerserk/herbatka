@@ -1,0 +1,17 @@
+[package]
+name = "herbatka-simulator"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "Fleet-style load simulator for Herbatka (framed wire v1)."
+license = "MIT"
+repository = "https://github.com/RunBerserk/herbatka"
+
+[dependencies]
+herbatka-wire = { path = "../herbatka-wire" }
+prost = "0.13"
+tracing = "0.1"
+
+[[bin]]
+name = "simulator"
+path = "src/main.rs"

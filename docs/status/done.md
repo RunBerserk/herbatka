@@ -11,7 +11,7 @@ History of completed work. New entries land at the bottom; no entries are remove
 - Minimal TCP interface (server + basic protocol)
 - Define simple command format (PRODUCE / FETCH); **framed wire v1** with handshake (`HERBATKA WIRE/1`) + legacy first-line newline mode (`docs/reference/tcp-wire-protocol.md`)
 - Three logical channels (heartbeat / control / telemetry) as **topic naming only** — see [logical-channels.md](../reference/logical-channels.md); broker unchanged
-- Canonical **Protobuf** shapes for those lanes (`proto/herbatka_fleet.proto`, `herbatka::generated_schemas`); payload bytes inside framed bodies; default demos stay JSON on topic `events`
+- Canonical **Protobuf** shapes for those lanes (`crates/herbatka-wire/proto/herbatka_fleet.proto`, `herbatka::generated_schemas` re-exporting `herbatka_wire`); payload bytes inside framed bodies; default demos stay JSON on topic `events`
 - First manual end-to-end test (e.g. via netcat)
 - Simple CLI producer (send messages over TCP)
 - Simple CLI consumer (fetch loop)

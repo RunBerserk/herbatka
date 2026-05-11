@@ -2,8 +2,8 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
-use herbatka::tcp::command::Response;
-use herbatka::tcp::frame::{decode_response_frame, read_frame};
+use herbatka_wire::tcp::command::Response;
+use herbatka_wire::tcp::frame::{decode_response_frame, read_frame};
 
 use super::{
     DeterministicRng, PayloadFormat, SimulatorArgs, Summary, VehicleMotionState,
