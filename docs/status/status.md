@@ -19,9 +19,10 @@ History extracted to [done.md](done.md).
 
 ## In Progress
 
+- **`Message.timestamp` → `u64` epoch ms** — implement [roadmap.md — Message Timestamp Representation](roadmap.md) (architecture: align domain type with persistence; not driven by perf). Rollout and verification steps are in that section.
+
 ## Next Up
 - v1 risk decision — Benchmark or document acceptance of global Mutex + concurrent clients.
-- Timestamp decision — Implement roadmap migration or mark “accepted for v1” in docs.
 - Cut v1 / tag — Changelog + version bump when you declare feature-complete (CHANGELOG.md + semver).
 
 
