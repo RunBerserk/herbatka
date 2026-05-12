@@ -109,12 +109,7 @@ fn tcp_legacy_parse_error_returns_err_line() {
     let mut client = TcpStream::connect(addr).expect("connect");
     let mut reader = BufReader::new(client.try_clone().expect("clone"));
 
-    write_expect_line(
-        &mut client,
-        &mut reader,
-        b"PING\n",
-        "ERR unknown command\n",
-    );
+    write_expect_line(&mut client, &mut reader, b"PING\n", "ERR unknown command\n");
 
     drop(reader);
     drop(client);

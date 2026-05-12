@@ -16,10 +16,9 @@ History extracted to [done.md](done.md).
 - wire: lossy UTF-8 display helper + docs
 - **TCP wire v1 closure:** [tcp-wire-protocol.md](../reference/tcp-wire-protocol.md) — implementation notes (framed vs legacy errors), reference clients, minimal framed flow; integration tests — legacy `ERR` paths, CRLF handshake, framed unknown-op recovery, oversize first line / oversize `payload_len`.
 - **v1 definition of done:** [v1.md](v1.md) — single-node scope, verification (CI-aligned), explicit not-in-v1.0 exclusions (clustering / leader / quorum / HA failover), pointers to open decisions.
+- **`Message.timestamp` → `u64` epoch ms:** [roadmap.md](roadmap.md) — domain type aligned with segment encoding; [`now_epoch_millis`](../../crates/herbatka/src/time.rs).
 
 ## In Progress
-
-- **`Message.timestamp` → `u64` epoch ms** — implement [roadmap.md — Message Timestamp Representation](roadmap.md) (architecture: align domain type with persistence; not driven by perf). Rollout and verification steps are in that section.
 
 ## Next Up
 - v1 risk decision — Benchmark or document acceptance of global Mutex + concurrent clients.

@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
-use std::time::{Duration, UNIX_EPOCH};
 
 use crate::log::message::Message;
 
@@ -14,13 +13,12 @@ const NONE_KEY_SENTINEL: u32 = u32::MAX;
 // ---------- Public API ----------
 
 pub fn encode_message(message: &Message) -> io::Result<Vec<u8>> {
-    let timestamp = encode_timestamp(message);
     let key = encode_key(message);
     let payload = encode_payload(message);
     let headers = encode_headers(message);
 
     let mut buf = Vec::new();
-    buf.extend_from_slice(&timestamp);
+    buf.extend_from_slice(&encode_timestamp(message));
     buf.extend_from_slice(&key);
     buf.extend_from_slice(&payload);
     buf.extend_from_slice(&headers);
@@ -59,16 +57,8 @@ fn encode_key(message: &Message) -> Vec<u8> {
     buf
 }
 
-fn encode_timestamp(message: &Message) -> Vec<u8> {
-    let ts = message
-        .timestamp
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::from_millis(0))
-        .as_millis() as u64;
-
-    let mut buf = Vec::new();
-    buf.extend_from_slice(&ts.to_le_bytes());
-    buf
+fn encode_timestamp(message: &Message) -> [u8; 8] {
+    message.timestamp.to_le_bytes()
 }
 
 fn push_len_prefixed_bytes(buf: &mut Vec<u8>, bytes: &[u8]) {
@@ -94,9 +84,8 @@ pub fn decode_message(mut data: &[u8]) -> io::Result<Message> {
     })
 }
 
-fn decode_timestamp(data: &mut &[u8]) -> io::Result<std::time::SystemTime> {
-    let ts = read_u64(data)?;
-    Ok(UNIX_EPOCH + Duration::from_millis(ts))
+fn decode_timestamp(data: &mut &[u8]) -> io::Result<u64> {
+    read_u64(data)
 }
 
 fn decode_key(data: &mut &[u8]) -> io::Result<Option<Vec<u8>>> {
@@ -200,7 +189,6 @@ mod tests {
     use super::{decode_message, encode_message};
     use crate::log::message::Message;
     use std::collections::HashMap;
-    use std::time::{Duration, UNIX_EPOCH};
 
     #[test]
     fn encode_decode_roundtrip_json_payload() {
@@ -211,8 +199,7 @@ mod tests {
         let original = Message {
             key: Some(b"car-42-json".to_vec()),
             payload: br#"{"speed":123}"#.to_vec(),
-            // use exact millisecond value to match encoder precision
-            timestamp: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
+            timestamp: 1_700_000_000_123,
             headers,
         };
 
@@ -238,8 +225,7 @@ mod tests {
         let original = Message {
             key: Some(b"car-23-proto".to_vec()),
             payload: proto_payload,
-            // encoder stores millis, so use exact millis here
-            timestamp: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
+            timestamp: 1_700_000_000_123,
             headers,
         };
 
@@ -260,7 +246,7 @@ mod tests {
         let original = Message {
             key: None,           // no key
             payload: Vec::new(), // empty payload
-            timestamp: UNIX_EPOCH + Duration::from_millis(0),
+            timestamp: 0,
             headers: HashMap::new(), // empty headers
         };
 
@@ -288,7 +274,7 @@ mod tests {
         let original = Message {
             key: Some(b"car-headers-test".to_vec()),
             payload: b"payload".to_vec(),
-            timestamp: UNIX_EPOCH + Duration::from_millis(1_700_000_000_555),
+            timestamp: 1_700_000_000_555,
             headers,
         };
 

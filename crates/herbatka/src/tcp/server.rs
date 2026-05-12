@@ -2,18 +2,17 @@
 //! Accepts client connections, parses legacy line protocol or framed wire v1 after handshake,
 //! and dispatches broker operations.
 
-use std::io::{self, BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
-
 use crate::broker::core::{Broker, BrokerError};
 use crate::log::message::Message;
+use crate::time::now_epoch_millis;
 use herbatka_wire::tcp::frame::{
     HANDSHAKE_SERVER_ACK_V1, WireError, decode_client_frame, encode_response, read_first_line,
     read_frame, write_frame,
 };
 use herbatka_wire::tcp::protocol::{Request, Response, format_response, parse_request};
+use std::io::{self, BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
 use tracing::{debug, error, info, warn};
 
 pub fn run(addr: &str, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
@@ -202,7 +201,7 @@ fn build_message(payload: &[u8]) -> Message {
     Message {
         key: None,
         payload: payload.to_vec(),
-        timestamp: SystemTime::now(),
+        timestamp: now_epoch_millis(),
         headers: std::collections::HashMap::new(),
     }
 }

@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions, create_dir_all, remove_file};
 use std::io;
 use std::io::Cursor;
-use std::time::{Duration, UNIX_EPOCH};
 
 #[test]
 fn persistence_flow_write_then_read_one_message() {
@@ -19,7 +18,7 @@ fn persistence_flow_write_then_read_one_message() {
     let original = Message {
         key: Some(b"car-42".to_vec()),
         payload: br#"{"speed":123}"#.to_vec(),
-        timestamp: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
+        timestamp: 1_700_000_000_123,
         headers,
     };
 
@@ -61,7 +60,7 @@ fn persistence_flow_real_file_in_data_logs() -> io::Result<()> {
     let original = Message {
         key: Some(b"car-42-json".to_vec()),
         payload: br#"{"speed":123}"#.to_vec(),
-        timestamp: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
+        timestamp: 1_700_000_000_123,
         headers,
     };
 
@@ -104,7 +103,7 @@ fn persistence_flow_real_file_in_data_logs_protobuf() -> io::Result<()> {
     let original = Message {
         key: Some(b"car-42-proto".to_vec()),
         payload: vec![0x08, 0x96, 0x01, 0x12, 0x05, b'h', b'e', b'l', b'l', b'o'],
-        timestamp: UNIX_EPOCH + Duration::from_millis(1_700_000_000_123),
+        timestamp: 1_700_000_000_123,
         headers,
     };
 

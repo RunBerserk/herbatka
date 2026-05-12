@@ -3,7 +3,7 @@
 //! `Message` stores payload and metadata.
 //! `LogEntry` pairs a message with its monotonic per-topic offset.
 
-use std::{collections::HashMap, time::SystemTime};
+use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct Message {
@@ -11,7 +11,8 @@ pub struct Message {
     pub key: Option<Vec<u8>>,
     /// Raw payload (e.g. Protobuf, JSON)
     pub payload: Vec<u8>,
-    pub timestamp: SystemTime,
+    /// Wall time as **milliseconds since Unix epoch** (matches on-disk persistence encoding).
+    pub timestamp: u64,
     pub headers: HashMap<String, Vec<u8>>, //eg. 0 heartbeat,1 controll...
 }
 

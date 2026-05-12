@@ -4,6 +4,7 @@ use herbatka::broker::core::Broker;
 use herbatka::config::{BrokerConfig, FsyncPolicy};
 use herbatka::generated_schemas::FleetTelemetryEvent;
 use herbatka::log::message::Message;
+use herbatka::time::now_epoch_millis;
 use prost::Message as ProstMessageTrait;
 use std::collections::HashMap;
 use std::fs::create_dir_all;
@@ -49,7 +50,7 @@ fn fleet_telemetry_protobuf_roundtrips_via_broker() {
     let msg = Message {
         key: None,
         payload: wire,
-        timestamp: SystemTime::now(),
+        timestamp: now_epoch_millis(),
         headers: HashMap::new(),
     };
     broker.produce("demo.scope.telemetry", msg).unwrap();

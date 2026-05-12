@@ -38,6 +38,7 @@ mod tests {
     use crate::broker::core::Broker;
     use crate::config::{BrokerConfig, FsyncPolicy};
     use crate::log::message::Message;
+    use crate::time::now_epoch_millis;
     use std::collections::HashMap;
     use std::fs::create_dir_all;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -46,7 +47,7 @@ mod tests {
         Message {
             key: None,
             payload: payload.to_vec(),
-            timestamp: SystemTime::now(),
+            timestamp: now_epoch_millis(),
             headers: HashMap::new(),
         }
     }

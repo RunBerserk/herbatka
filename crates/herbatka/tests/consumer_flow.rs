@@ -4,6 +4,7 @@
 
 use herbatka::broker::core::Broker;
 use herbatka::log::message::Message;
+use herbatka::time::now_epoch_millis;
 use std::collections::HashMap;
 use std::fs::create_dir_all;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -12,7 +13,7 @@ fn message(payload: &[u8]) -> Message {
     Message {
         key: None,
         payload: payload.to_vec(),
-        timestamp: SystemTime::now(),
+        timestamp: now_epoch_millis(),
         headers: HashMap::new(),
     }
 }

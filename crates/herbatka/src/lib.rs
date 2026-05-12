@@ -5,6 +5,7 @@
 pub mod broker;
 pub mod config;
 pub mod log;
+pub mod time;
 
 pub use herbatka_wire::generated_schemas;
 pub use herbatka_wire::observability;

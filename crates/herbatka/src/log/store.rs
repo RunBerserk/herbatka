@@ -160,10 +160,10 @@ fn flush_for_policy(file: &mut std::fs::File, fsync_policy: FsyncPolicy) -> io::
 #[cfg(test)]
 mod tests {
     use crate::log::message::Message;
+    use crate::time::now_epoch_millis;
 
     use super::*;
     use std::collections::HashMap;
-    use std::time::SystemTime;
 
     #[test]
     fn append_returns_offset_zero_for_first_message() {
@@ -173,7 +173,7 @@ mod tests {
         let msg = Message {
             key: None,
             payload: b"hello".to_vec(),
-            timestamp: SystemTime::now(),
+            timestamp: now_epoch_millis(),
             headers: HashMap::new(),
         };
         //WHEN
@@ -190,7 +190,7 @@ mod tests {
         let offset = log.append(Message {
             key: None,
             payload: b"hello".to_vec(),
-            timestamp: SystemTime::now(),
+            timestamp: now_epoch_millis(),
             headers: HashMap::new(),
         });
         //WHEN
@@ -207,14 +207,14 @@ mod tests {
         let offset1 = log.append(Message {
             key: None,
             payload: b"first".to_vec(),
-            timestamp: SystemTime::now(),
+            timestamp: now_epoch_millis(),
             headers: HashMap::new(),
         });
 
         let offset2 = log.append(Message {
             key: None,
             payload: b"second".to_vec(),
-            timestamp: SystemTime::now(),
+            timestamp: now_epoch_millis(),
             headers: HashMap::new(),
         });
         //WHEN

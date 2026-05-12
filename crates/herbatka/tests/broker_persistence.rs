@@ -5,6 +5,7 @@
 use herbatka::broker::core::{Broker, BrokerError};
 use herbatka::config::{BrokerConfig, FsyncPolicy};
 use herbatka::log::message::Message;
+use herbatka::time::now_epoch_millis;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions, create_dir_all, read_dir};
 use std::io::Write;
@@ -15,7 +16,7 @@ fn message(payload: &[u8]) -> Message {
     Message {
         key: None,
         payload: payload.to_vec(),
-        timestamp: SystemTime::now(),
+        timestamp: now_epoch_millis(),
         headers: HashMap::new(),
     }
 }
