@@ -55,7 +55,7 @@ HERBATKA OK/1\n
 
 After this, **all further data** on the connection uses **binary frames** described below. No interleaved line protocol.
 
-If the first line is not `HERBATKA WIRE/1\n`, the server treats it as the first **legacy** command and never enters framed mode on that connection.
+If the first line is not the framed handshake (including optional `\r` before `\n`, i.e. `HERBATKA WIRE/1\r\n` is accepted), the server treats it as the first **legacy** command and never enters framed mode on that connection.
 
 ### Frame envelope (both directions)
 
@@ -98,6 +98,41 @@ Responses use the same 8-byte envelope as requests.
 
 - Legacy: `ERR …` line with free-form text.
 - Framed: **Error** opcode with UTF-8 reason. Clients should not assume nested framing after an error unless a future version specifies it.
+
+**TopicBounds in legacy mode:** there is no line command for `TopicBounds`. If a line-mode response would need that shape, the server responds with `ERR topic bounds not available in line mode\n` (see [`format_response`](../../crates/herbatka-wire/src/tcp/command.rs)).
+
+### Reference clients (framed v1)
+
+These use `herbatka_wire::tcp::frame::perform_client_handshake` (or the same bytes) and framed produce/fetch:
+
+- [`crates/herbatka/src/bin/producer.rs`](../../crates/herbatka/src/bin/producer.rs) — single produce
+- [`crates/herbatka/src/bin/consumer.rs`](../../crates/herbatka/src/bin/consumer.rs) — fetch loop
+- [`crates/herbatka-simulator/src/transport.rs`](../../crates/herbatka-simulator/src/transport.rs) — load generator
+- [`crates/herbatka-ui/src/broker_client.rs`](../../crates/herbatka-ui/src/broker_client.rs) — UI broker access
+
+### Minimal framed client flow
+
+1. `TcpStream::connect(listen_addr)`.
+2. Write `HERBATKA WIRE/1\n`, read one line; expect `HERBATKA OK/1` (optional `\r` before `\n` on either side). In Rust, `perform_client_handshake` wraps this.
+3. For each request: write one full frame (8-byte header + payload), `flush`, read one full response frame (same envelope), decode op + payload.
+4. Use **Produce** / **Fetch** / **TopicBounds** request opcodes as in the tables above; interpret **OkOffset**, **Message**, **None**, **Error**, **TopicRange** responses.
+
+---
+
+## Implementation notes (herbatka server)
+
+Behavior of [`run_framed_connection`](../../crates/herbatka/src/tcp/server.rs) in v1:
+
+| Situation | Server behavior |
+|-----------|-----------------|
+| Framed request decodes, broker returns error | One **Error** response frame; connection stays open for the next frame. |
+| Framed request fails **frame decode** (`decode_client_frame`, e.g. unknown `op`, bad layout) | One **Error** response frame with a text reason; connection stays open. |
+| **read_frame** fails with I/O error or clean EOF before a complete frame | No response; connection ends (client disconnect or truncated stream). |
+| **read_frame** fails for other reasons (e.g. unsupported `version`/`flags`, `payload_len` over 16 MiB, length mismatch) | Server attempts one **Error** response frame, then closes the framed loop (connection may be half-closed from the client’s perspective). |
+
+**Legacy:** parse failures and broker errors become a single `ERR …` line; unknown-topic **fetch** returns `ERR unknown topic` (broker does not auto-create topics on fetch).
+
+**Oversize first line** (including legacy or handshake line): [`read_first_line`](../../crates/herbatka-wire/src/tcp/frame.rs) errors when the line exceeds **64 KiB** (including newline); `handle_client` surfaces that as an I/O error and closes the connection.
 
 ---
 

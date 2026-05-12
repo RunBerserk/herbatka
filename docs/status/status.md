@@ -1,10 +1,10 @@
 # Project Status
 
-Last updated: 2026-05-11
+Last updated: 2026-05-12
 
 ## Current Phase
 
-Persistence and recovery baseline -> moving toward external access (TCP)
+External access (TCP) wire v1 baseline closed; remaining v1 items tracked under **Next Up**.
 
 ## Done
 
@@ -14,10 +14,15 @@ History extracted to [done.md](done.md).
 - **UI fleet map** recovery when read cursor is past a shorter or reset log: `TopicBounds` on the wire, periodic clamp, **Resync read position**, reset when starting broker from UI (`herbatka-ui`).
 - **UI local data**: clear on-disk `data/logs/<topic>` (default `events`) when embedded broker/sim are stopped; **Quick demo load** runs a fixed short simulator (burst / ramp / 5s / seed 42).
 - wire: lossy UTF-8 display helper + docs
+- **TCP wire v1 closure:** [tcp-wire-protocol.md](../reference/tcp-wire-protocol.md) — implementation notes (framed vs legacy errors), reference clients, minimal framed flow; integration tests — legacy `ERR` paths, CRLF handshake, framed unknown-op recovery, oversize first line / oversize `payload_len`.
+
 ## In Progress
 
 ## Next Up
-
+- v1 risk decision — Benchmark or document acceptance of global Mutex + concurrent clients.
+- Timestamp decision — Implement roadmap migration or mark “accepted for v1” in docs.
+- v1 definition of done — Short checklist: which tests must pass, single-node ops expectations, recovery guarantees.
+- Cut v1 / tag — Changelog + version bump when you declare feature-complete (CHANGELOG.md + semver).
 
 
 ## Later (TODO, not now)

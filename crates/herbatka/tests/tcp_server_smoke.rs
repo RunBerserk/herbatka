@@ -1,8 +1,8 @@
 use herbatka::broker::core::Broker;
 use herbatka::tcp::command::Response;
 use herbatka::tcp::frame::{
-    HANDSHAKE_CLIENT_V1, decode_response_frame, encode_fetch, encode_produce, encode_topic_bounds,
-    read_frame,
+    HANDSHAKE_CLIENT_V1, HEADER_LEN, MAX_FRAME_PAYLOAD, OP_PRODUCE, WIRE_VERSION_V1,
+    decode_response_frame, encode_fetch, encode_produce, encode_topic_bounds, read_frame,
 };
 use herbatka::tcp::server::handle_client;
 use std::io::{BufRead, BufReader, Write};
@@ -31,6 +31,20 @@ fn spawn_test_server(broker: Arc<Mutex<Broker>>) -> (thread::JoinHandle<()>, Soc
     let server_thread = thread::spawn(move || {
         let (stream, _) = listener.accept().expect("accept should succeed");
         handle_client(stream, &broker_for_thread).expect("client handling should succeed");
+    });
+    (server_thread, addr)
+}
+
+/// Like [`spawn_test_server`], but exposes `handle_client`'s `io::Result` (e.g. oversize first line).
+fn spawn_test_server_returns_client_result(
+    broker: Arc<Mutex<Broker>>,
+) -> (thread::JoinHandle<std::io::Result<()>>, SocketAddr) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind should succeed");
+    let addr = listener.local_addr().expect("local addr should exist");
+    let broker_for_thread = Arc::clone(&broker);
+    let server_thread = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept should succeed");
+        handle_client(stream, &broker_for_thread)
     });
     (server_thread, addr)
 }
@@ -84,6 +98,67 @@ fn tcp_produce_and_fetch_smoke() {
     drop(reader);
     drop(client);
     server_thread.join().expect("server thread should join");
+}
+
+#[test]
+fn tcp_legacy_parse_error_returns_err_line() {
+    let dir = tcp_test_dir("legacy_parse_err");
+    let broker = Arc::new(Mutex::new(Broker::with_data_dir(dir)));
+    let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
+
+    let mut client = TcpStream::connect(addr).expect("connect");
+    let mut reader = BufReader::new(client.try_clone().expect("clone"));
+
+    write_expect_line(
+        &mut client,
+        &mut reader,
+        b"PING\n",
+        "ERR unknown command\n",
+    );
+
+    drop(reader);
+    drop(client);
+    server_thread.join().expect("join");
+}
+
+#[test]
+fn tcp_legacy_fetch_unknown_topic_returns_err() {
+    let dir = tcp_test_dir("legacy_unknown_topic");
+    let broker = Arc::new(Mutex::new(Broker::with_data_dir(dir)));
+    let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
+
+    let mut client = TcpStream::connect(addr).expect("connect");
+    let mut reader = BufReader::new(client.try_clone().expect("clone"));
+
+    write_expect_line(
+        &mut client,
+        &mut reader,
+        b"FETCH not_a_topic_yet 0\n",
+        "ERR unknown topic\n",
+    );
+
+    drop(reader);
+    drop(client);
+    server_thread.join().expect("join");
+}
+
+#[test]
+fn tcp_legacy_first_line_over_max_rejected() {
+    let dir = tcp_test_dir("oversize_line");
+    let broker = Arc::new(Mutex::new(Broker::with_data_dir(dir)));
+    let (server_thread, addr) = spawn_test_server_returns_client_result(Arc::clone(&broker));
+
+    let mut client = TcpStream::connect(addr).expect("connect");
+    let payload = vec![b'x'; 64 * 1024];
+    client.write_all(&payload).expect("write");
+    client.flush().expect("flush");
+    drop(client);
+
+    let server_res = server_thread.join().expect("join");
+    assert!(
+        server_res.is_err(),
+        "expected oversize first line to fail server handler: {server_res:?}"
+    );
 }
 
 #[test]
@@ -175,6 +250,116 @@ fn tcp_framed_handshake_produce_fetch_roundtrip() {
     client.flush().expect("flush fetch tail");
     let resp3 = read_frame(&mut reader).expect("fetch none");
     assert_eq!(decode_response_frame(&resp3).unwrap(), Response::None);
+
+    drop(reader);
+    drop(client);
+    server_thread.join().expect("join");
+}
+
+#[test]
+fn tcp_framed_handshake_cr_lf_accepted() {
+    let dir = tcp_test_dir("framed_crlf");
+    let broker = Arc::new(Mutex::new(Broker::with_data_dir(dir)));
+    let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
+
+    let mut client = TcpStream::connect(addr).expect("connect");
+    let mut reader = BufReader::new(client.try_clone().expect("clone"));
+
+    client
+        .write_all(b"HERBATKA WIRE/1\r\n")
+        .expect("handshake write CRLF");
+    client.flush().expect("flush handshake");
+    let mut ack = String::new();
+    reader.read_line(&mut ack).expect("ack read");
+    assert_eq!(
+        ack.trim_end_matches(['\r', '\n']),
+        "HERBATKA OK/1",
+        "unexpected ack: {ack:?}"
+    );
+
+    let p_frame = encode_produce("cr", b"y").unwrap();
+    client.write_all(&p_frame).expect("produce");
+    client.flush().expect("flush produce");
+    let resp = read_frame(&mut reader).expect("produce response");
+    assert_eq!(decode_response_frame(&resp).unwrap(), Response::OkOffset(0));
+
+    drop(reader);
+    drop(client);
+    server_thread.join().expect("join");
+}
+
+#[test]
+fn tcp_framed_unknown_op_then_recover() {
+    let dir = tcp_test_dir("framed_bad_op");
+    let broker = Arc::new(Mutex::new(Broker::with_data_dir(dir)));
+    let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
+
+    let mut client = TcpStream::connect(addr).expect("connect");
+    let mut reader = BufReader::new(client.try_clone().expect("clone"));
+
+    client
+        .write_all(HANDSHAKE_CLIENT_V1)
+        .expect("handshake write");
+    client.flush().expect("flush handshake");
+    let mut ack = String::new();
+    reader.read_line(&mut ack).expect("ack read");
+    assert_eq!(ack.trim_end_matches(['\r', '\n']), "HERBATKA OK/1");
+
+    let mut bad = vec![WIRE_VERSION_V1, 99u8, 0, 0];
+    bad.extend_from_slice(&0u32.to_le_bytes());
+    client.write_all(&bad).expect("unknown op frame");
+    client.flush().expect("flush");
+    let err_frame = read_frame(&mut reader).expect("error response");
+    match decode_response_frame(&err_frame).expect("decode err") {
+        Response::Error(reason) => assert!(reason.contains("unknown op"), "{reason}"),
+        other => panic!("expected Error framed response: {other:?}"),
+    }
+
+    let p_frame = encode_produce("recv", b"after").unwrap();
+    client.write_all(&p_frame).expect("produce after error");
+    client.flush().expect("flush produce");
+    let ok_frame = read_frame(&mut reader).expect("ok response");
+    assert_eq!(
+        decode_response_frame(&ok_frame).unwrap(),
+        Response::OkOffset(0)
+    );
+
+    drop(reader);
+    drop(client);
+    server_thread.join().expect("join");
+}
+
+#[test]
+fn tcp_framed_oversized_declared_payload_returns_error_frame() {
+    let dir = tcp_test_dir("framed_oversize_hdr");
+    let broker = Arc::new(Mutex::new(Broker::with_data_dir(dir)));
+    let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
+
+    let mut client = TcpStream::connect(addr).expect("connect");
+    let mut reader = BufReader::new(client.try_clone().expect("clone"));
+
+    client
+        .write_all(HANDSHAKE_CLIENT_V1)
+        .expect("handshake write");
+    client.flush().expect("flush handshake");
+    let mut ack = String::new();
+    reader.read_line(&mut ack).expect("ack read");
+    assert_eq!(ack.trim_end_matches(['\r', '\n']), "HERBATKA OK/1");
+
+    let mut hdr = [0u8; HEADER_LEN];
+    hdr[0] = WIRE_VERSION_V1;
+    hdr[1] = OP_PRODUCE;
+    hdr[4..8].copy_from_slice(&(MAX_FRAME_PAYLOAD + 1).to_le_bytes());
+    client.write_all(&hdr).expect("bad header");
+    client.flush().expect("flush header");
+    let resp = read_frame(&mut reader).expect("error frame");
+    match decode_response_frame(&resp).expect("decode") {
+        Response::Error(reason) => assert!(
+            reason.contains("payload too large"),
+            "unexpected reason: {reason}"
+        ),
+        other => panic!("expected Error: {other:?}"),
+    }
 
     drop(reader);
     drop(client);

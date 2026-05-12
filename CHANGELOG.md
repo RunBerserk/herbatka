@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- TCP protocol documentation: reference clients, minimal framed-client flow, and server implementation notes (`docs/reference/tcp-wire-protocol.md`).
+- Integration tests for TCP legacy error lines, CRLF handshake, framed decode recovery, and oversize framing (`tcp_server_smoke`).
+
 ### Fixed
 
 - Removed startup panic in `load_topic_state` when the trusted-skip invariant is violated; the broker now returns `BrokerError::Io(InvalidData)` instead of crashing during topic recovery.
