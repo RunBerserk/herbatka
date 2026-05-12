@@ -2,6 +2,8 @@
 
 This document tracks benchmark history for Herbatka.
 
+**Cadence:** upcoming tickets and post-v1 work (persistence, TCP, concurrency, retention, etc.) can shift numbers—re-run the relevant harnesses here when those areas change or before a release so baselines are not lost.
+
 ## Startup Replay Benchmarks
 
 ### 2026-05-01 - Lightweight replay sanity (1 iteration)

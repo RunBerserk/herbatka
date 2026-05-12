@@ -26,6 +26,8 @@ Things the project intentionally does NOT do.
 
 it is not an replacement for Kafka ;)
 
+Release-scoped exclusions for **v1.0** (e.g. multi-node clustering, leader election, quorum, HA failover) live in [status/v1.md](status/v1.md).
+
 ## Success Criteria
 lightweight, fast, can handle 1 mio events (eg. 1mio x car telemetry)
 

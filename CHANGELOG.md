@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Herbatka v1.0 definition of done (`docs/status/v1.md`): single-node scope, CI verification checklist, explicit not-in-v1.0 features, pointers to roadmap and risks.
 - TCP protocol documentation: reference clients, minimal framed-client flow, and server implementation notes (`docs/reference/tcp-wire-protocol.md`).
 - Integration tests for TCP legacy error lines, CRLF handshake, framed decode recovery, and oversize framing (`tcp_server_smoke`).
 

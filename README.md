@@ -9,6 +9,7 @@ A lightweight event streaming broker inspired by Apache Kafka, focused on simpli
 - [Why](docs/why.md) - purpose and philosophy
 - [What](docs/what.md) - concrete features and commands
 - [How](docs/how.md) - principles and architecture
+- [Herbatka v1.0 definition of done](docs/status/v1.md) - scope, verification, exclusions for release 1.0
 - [UI Draft](docs/reference/ui-draft.md) - map-first fleet UI wireframe and Mermaid source
 - [Simulator Guide](docs/reference/simulator.md) - simulator flags, counters, and troubleshooting
 - [Test Harness](docs/reference/test-harness.md) - deterministic local smoke flow

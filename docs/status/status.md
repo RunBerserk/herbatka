@@ -15,13 +15,13 @@ History extracted to [done.md](done.md).
 - **UI local data**: clear on-disk `data/logs/<topic>` (default `events`) when embedded broker/sim are stopped; **Quick demo load** runs a fixed short simulator (burst / ramp / 5s / seed 42).
 - wire: lossy UTF-8 display helper + docs
 - **TCP wire v1 closure:** [tcp-wire-protocol.md](../reference/tcp-wire-protocol.md) — implementation notes (framed vs legacy errors), reference clients, minimal framed flow; integration tests — legacy `ERR` paths, CRLF handshake, framed unknown-op recovery, oversize first line / oversize `payload_len`.
+- **v1 definition of done:** [v1.md](v1.md) — single-node scope, verification (CI-aligned), explicit not-in-v1.0 exclusions (clustering / leader / quorum / HA failover), pointers to open decisions.
 
 ## In Progress
 
 ## Next Up
 - v1 risk decision — Benchmark or document acceptance of global Mutex + concurrent clients.
 - Timestamp decision — Implement roadmap migration or mark “accepted for v1” in docs.
-- v1 definition of done — Short checklist: which tests must pass, single-node ops expectations, recovery guarantees.
 - Cut v1 / tag — Changelog + version bump when you declare feature-complete (CHANGELOG.md + semver).
 
 
@@ -45,4 +45,4 @@ History extracted to [done.md](done.md).
 ## Notes
 
 - Startup replay summary log includes `closed_partial_replay_used` and `closed_partial_replay_fallback` (non-tail sparse seek) alongside existing `tail_partial_*` fields.
-- Benchmark history: [benchmarks.md](benchmarks.md).
+- Benchmark history: [benchmarks.md](benchmarks.md) — see short **Cadence** note there (re-baseline when performance-sensitive code paths change).
