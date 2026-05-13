@@ -6,7 +6,7 @@ This document tracks benchmark history for Herbatka.
 
 ## v1 TCP concurrency acceptance criteria
 
-Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker process). Implementation and measured baselines are tracked in [status.md](status.md) **Next Up** steps (2)–(5); this section is the **pass/fail contract**. Revise only by explicit decision (update this file and [status.md](status.md)).
+Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker process). A **measured baseline** (pre–concurrent-accept work) is in [TCP concurrency baseline measurement](#tcp-concurrency-baseline-measurement-pre-step-3) below. Remaining implementation work is tracked in [status.md](status.md) **Next Up**. Revise the bar only by explicit decision (update this file and [status.md](status.md)).
 
 ### Topology (in scope)
 
@@ -38,13 +38,39 @@ Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker pr
 
 ### Responsiveness (v1 qualitative SLO)
 
-- With **8** clients running the workload above, a **9th** short-lived framed client must complete **handshake + Produce + Fetch** on a **fresh topic** within **10 s** wall clock on a typical developer laptop. (CI environments may record stricter numbers in a dated entry under this document when step 2 runs.)
+- With **8** clients running the workload above, a **9th** short-lived framed client must complete **handshake + Produce + Fetch** on a **fresh topic** within **10 s** wall clock on a typical developer laptop. Baseline against that window: [TCP concurrency baseline measurement](#tcp-concurrency-baseline-measurement-pre-step-3) (watchdog row).
 
 ### Out of scope for this bar
 
 - Multi-node, HA, leader election, quorum, split-brain — see [v1.md — Explicitly not in v1.0](v1.md).
 - Protobuf-on-wire, QUIC — see [status.md — Later](status.md).
 - Throughput **champions** or datacenter-scale load testing — not required for v1; tighten numbers only if you add a product SLO later.
+
+## TCP concurrency baseline measurement (pre-step 3)
+
+### 2026-05-12 — scripted short run (release)
+
+**Scope:** Current broker TCP path serializes **`handle_client`** in [`server::run`](../../crates/herbatka/src/tcp/server.rs) before the next `accept`, with shared state behind [`Arc<Mutex<Broker>>`](../../crates/herbatka/src/main.rs). This entry records **observed** timings from the repo harness (not a claim that the [acceptance criteria](#v1-tcp-concurrency-acceptance-criteria) bar is met).
+
+**Harness:**
+
+- Scripts (same flow): **Windows** — `powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tcp_concurrency_baseline.ps1 -Short -Release`; **Unix / Git Bash** — `bash ./scripts/tcp_concurrency_baseline.sh --short --release` (requires `python3` for an ephemeral port; `nc` optional for readiness, otherwise bash `/dev/tcp`). Omit `-Short` / `--short` for **8 clients × 60 s** workload (long wall time on today’s server).
+- Probe binary: `cargo run --release -p herbatka --bin tcp_concurrency_probe -- --addr HOST:PORT …` (see `--help` on the binary).
+
+**Environment (first captured run):** Windows 10, **release** build, **short** profile (`-Short`: **4** clients, **3 s** workload each, framed v1, `fsync_policy = "never"` temp broker).
+
+**Command (short / release):** `powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tcp_concurrency_baseline.ps1 -Short -Release` **or** `bash ./scripts/tcp_concurrency_baseline.sh --short --release`
+
+**Results (single run; expect noise):**
+
+| Metric | Value |
+|--------|-------|
+| `probe_summary` `total_wall_s` | ~`15.94` |
+| `probe_summary` `clients` / `duration_per_client_s` | `4` / `3.0` |
+| `probe_watchdog_ok` `elapsed_ms` | ~`15_939` |
+| Per-worker `total_worker_s` (printed one line per `client_id`) | ~`15.9`, `8.0`, `12.0`, `4.0` s (order depends which connection the OS schedules first) |
+
+**Interpretation:** Total wall time is approximately **serial** service of each long-lived framed session (plus probe overhead). Several workers show sub-millisecond `connect_ms` while `handshake_ms` is large: on this stack **`TcpStream::connect` can return before the application has `accept`ed**, so queue wait often appears under **`handshake_ms`** (time until `HERBATKA OK/1` and framed work begin), not under `connect_ms`. The **9th-client** watchdog starts after the first framed handshake completes elsewhere and then competes for `accept` behind the remaining workers; **~16 s** for handshake + one Produce + one Fetch is **far beyond** the **10 s** qualitative SLO in the acceptance criteria—expected until concurrent accept / routing lands (Next Up in [status.md](status.md)).
 
 ## Startup Replay Benchmarks
 

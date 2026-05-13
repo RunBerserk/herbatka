@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-05-13
+Last updated: 2026-05-12
 
 ## Current Phase
 
@@ -17,16 +17,15 @@ History extracted to [done.md](done.md).
 - **TCP wire v1 closure:** [tcp-wire-protocol.md](../reference/tcp-wire-protocol.md) — implementation notes (framed vs legacy errors), reference clients, minimal framed flow; integration tests — legacy `ERR` paths, CRLF handshake, framed unknown-op recovery, oversize first line / oversize `payload_len`.
 - **v1 definition of done:** [v1.md](v1.md) — single-node scope, verification (CI-aligned), explicit not-in-v1.0 exclusions (clustering / leader / quorum / HA failover), pointers to open decisions.
 - **`Message.timestamp` → `u64` epoch ms:** [roadmap.md](roadmap.md) — domain type aligned with segment encoding; [`now_epoch_millis`](../../crates/herbatka/src/time.rs).
-- **v1 concurrency — (1) bar definition:** Checkable acceptance criteria (topology, **N = 8** framed clients, workload, correctness, qualitative SLO) — [benchmarks.md — v1 TCP concurrency acceptance criteria](benchmarks.md#v1-tcp-concurrency-acceptance-criteria).
+- **v1 concurrency — (2) measure / reproduce:** Baseline harness + script + dated entry — [benchmarks.md — TCP concurrency baseline measurement](benchmarks.md#tcp-concurrency-baseline-measurement-pre-step-3).
 
 ## Next Up
 
-**v1 concurrency** — criteria and pass/fail contract: [benchmarks.md — v1 TCP concurrency acceptance criteria](benchmarks.md#v1-tcp-concurrency-acceptance-criteria) (see [Known Gaps / Risks](#known-gaps--risks); wire format unchanged—transport/runtime only unless you add wire v2 on purpose):
+**v1 concurrency** — criteria: [benchmarks.md — v1 TCP concurrency acceptance criteria](benchmarks.md#v1-tcp-concurrency-acceptance-criteria); baseline: [benchmarks.md — TCP concurrency baseline measurement](benchmarks.md#tcp-concurrency-baseline-measurement-pre-step-3) (see [Known Gaps / Risks](#known-gaps--risks); wire format unchanged—transport/runtime only unless you add wire v2 on purpose):
 
-2. **Measure / reproduce** — Short stress or script + one entry in [benchmarks.md](benchmarks.md) documenting current behavior (accept loop + `Arc<Mutex<Broker>>` in `crates/herbatka/src/main.rs`, `tcp/server.rs`).
-3. **Concurrent connections (minimal)** — e.g. `std::thread::spawn` per accepted `TcpStream`, keep sync `herbatka-wire` framing; integration test with **2+ simultaneous** clients.
-4. **Tokio (optional)** — `#[tokio::main]`, accept loop + `spawn` per connection, async I/O; **Tokio** is a likely direction; same on-the-wire bytes as [tcp-wire-protocol.md](../reference/tcp-wire-protocol.md). May need async framing helpers.
-5. **Broker lock / throughput** — After (3) or (4): e.g. `RwLock`, broker actor + channel, or `tokio::sync::Mutex`; prove with tests targeted at your bar.
+2. **Concurrent connections (minimal)** — e.g. `std::thread::spawn` per accepted `TcpStream`, keep sync `herbatka-wire` framing; integration test with **2+ simultaneous** clients.
+3. **Tokio (optional)** — `#[tokio::main]`, accept loop + `spawn` per connection, async I/O; **Tokio** is a likely direction; same on-the-wire bytes as [tcp-wire-protocol.md](../reference/tcp-wire-protocol.md). May need async framing helpers.
+4. **Broker lock / throughput** — After (2) or (3): e.g. `RwLock`, broker actor + channel, or `tokio::sync::Mutex`; prove with tests targeted at your bar.
 
 - Cut v1 / tag — Changelog + version bump when you declare feature-complete (CHANGELOG.md + semver).
 
