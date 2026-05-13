@@ -50,38 +50,51 @@ pub fn serve(listener: TcpListener, broker: Arc<Mutex<Broker>>) -> io::Result<()
 /// [`handle_client`]; after `into_std()` we set **`set_nonblocking(false)`** (needed on some
 /// platforms, e.g. Windows, so `read_exact` / framed reads behave reliably).
 pub async fn run(addr: &str, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
-    let std_listener = TcpListener::bind(addr)?;
-    std_listener.set_nonblocking(true)?;
-    let listener = TokioTcpListener::from_std(std_listener)?;
+    let listener = TcpListener::bind(addr)?;
+    listener.set_nonblocking(true)?;
+    let listener = TokioTcpListener::from_std(listener)?;
+
     info!(%addr, "herbatka tcp listening");
+
     loop {
-        match listener.accept().await {
-            Ok((stream, _)) => {
-                let broker = Arc::clone(&broker);
-                let std_stream = match stream.into_std() {
-                    Ok(s) => s,
-                    Err(e) => {
-                        error!("tcp into_std failed: {e}");
-                        continue;
-                    }
-                };
-                if let Err(e) = std_stream.set_nonblocking(false) {
-                    error!("tcp set_nonblocking(false) failed: {e}");
-                    continue;
-                }
-                if let Err(e) = thread::Builder::new()
-                    .name("herbatka-tcp".to_string())
-                    .spawn(move || {
-                        if let Err(e) = handle_client(std_stream, &broker) {
-                            error!("client handling error: {e}");
-                        }
-                    })
-                {
-                    error!("spawn herbatka tcp client thread: {e}");
-                }
+        let (stream, _) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                warn!("accept error: {e}");
+                continue;
             }
-            Err(e) => warn!("accept error: {e}"),
+        };
+
+        let broker = Arc::clone(&broker);
+        spawn_client_thread(stream, broker);
+    }
+}
+
+/// Move an accepted Tokio TCP stream onto a **blocking** `std::net::TcpStream` and run
+/// [`handle_client`] on a dedicated OS thread (detached).
+fn spawn_client_thread(stream: tokio::net::TcpStream, broker: Arc<Mutex<Broker>>) {
+    let std_stream = match stream.into_std() {
+        Ok(stream) => stream,
+        Err(e) => {
+            error!("tcp into_std failed: {e}");
+            return;
         }
+    };
+
+    if let Err(e) = std_stream.set_nonblocking(false) {
+        error!("tcp set_nonblocking(false) failed: {e}");
+        return;
+    }
+
+    if let Err(e) = thread::Builder::new()
+        .name("herbatka-tcp".to_string())
+        .spawn(move || {
+            if let Err(e) = handle_client(std_stream, &broker) {
+                error!("client handling error: {e}");
+            }
+        })
+    {
+        error!("spawn herbatka tcp client thread: {e}");
     }
 }
 
