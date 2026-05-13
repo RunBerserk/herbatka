@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-05-12
+Last updated: 2026-05-13
 
 ## Current Phase
 
@@ -21,7 +21,8 @@ History extracted to [done.md](done.md).
 ## In Progress
 
 ## Next Up
-- v1 risk decision — Benchmark or document acceptance of global Mutex + concurrent clients.
+
+- **v1 concurrency** — Multiple concurrent TCP clients must **work correctly** on v1 (no silent corruption; responsive enough for the intended demo / multi-client use). Baseline under load in [benchmarks.md](benchmarks.md); extend tests if gaps appear. **Implementation direction (not committed until designed):** a **Tokio**-based async TCP server and task model is a likely option to improve I/O concurrency while keeping broker invariants; finer-grained locking or an actor-style broker task are alternatives—see Known Gaps.
 - Cut v1 / tag — Changelog + version bump when you declare feature-complete (CHANGELOG.md + semver).
 
 
@@ -38,7 +39,7 @@ History extracted to [done.md](done.md).
 
 ## Known Gaps / Risks
 
-- Single shared broker lock (`Arc<Mutex<Broker>>`) may become a throughput bottleneck under concurrent clients. (should quantify under real load before redesigning — pattern unchanged in `crates/herbatka/src/main.rs` + `crates/herbatka/src/tcp/server.rs`.)
+- **Concurrency is a v1 problem:** today the broker is behind a **single shared** `Arc<Mutex<Broker>>` (`crates/herbatka/src/main.rs`, `crates/herbatka/src/tcp/server.rs`). v1 is **not** done while “many clients at once” is only theoretically correct—define an acceptable bar (e.g. N framed clients, produce/fetch mix), measure it, and close gaps (tests + code or documented limits you refuse to exceed). **Likely follow-up direction:** **Tokio** for async accept/read/write and structured tasks; the mutex on shared `Broker` state may still need a deliberate strategy (e.g. `tokio::sync::Mutex`, `RwLock`, or a single broker task + channels)—Tokio alone does not remove that design choice.
 
  
 
