@@ -17,7 +17,7 @@ Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker pr
 
 - **Minimum `N = 8`** simultaneous **framed v1** TCP connections after `HERBATKA WIRE/1` handshake ([tcp-wire-protocol.md](../reference/tcp-wire-protocol.md)).
 - Each connection keeps the socket open and performs the workload below for at least **60 s** (not connect-disconnect-only).
-- **Two dimensions** for the full soak harness: (a) **overlapping framed connection lifetimes** (several clients doing produce/fetch at the same wall time — [`serve`](../../crates/herbatka/src/tcp/server.rs) runs each connection on its **own thread** after `accept`); (b) **`Arc<Mutex<Broker>>` contention** under concurrent produce/fetch from those connections (broker work is still serialized on the mutex until lock strategy improves).
+- **Two dimensions** for the full soak harness: (a) **overlapping framed connection lifetimes** (several clients doing produce/fetch at the same wall time — production binary: Tokio [`run`](../../crates/herbatka/src/tcp/server.rs) for accept + **`std::thread`** per client; tests: [`serve`](../../crates/herbatka/src/tcp/server.rs) with OS threads per `accept`); (b) **`Arc<Mutex<Broker>>` contention** under concurrent produce/fetch from those connections (broker work is still serialized on the mutex until lock strategy improves).
 
 ### Wire mode
 
@@ -48,7 +48,7 @@ Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker pr
 
 ## TCP concurrency baseline measurement (pre-step 3)
 
-Dated **probe** runs using [`tcp_concurrency_probe`](../../crates/herbatka/src/bin/tcp_concurrency_probe.rs) and the baseline scripts. Rows may mix **before** and **after** per-connection TCP threads (`serve`); read each subsection’s **Scope**.
+Dated **probe** runs using [`tcp_concurrency_probe`](../../crates/herbatka/src/bin/tcp_concurrency_probe.rs) and the baseline scripts. Rows may mix **before** and **after** transport changes (serial accept, per-connection OS threads on `serve`, **Tokio `run`** on the real binary); read each subsection’s **Scope**.
 
 ### 2026-05-12 — short / release (serial accept, historical)
 
@@ -90,6 +90,23 @@ Dated **probe** runs using [`tcp_concurrency_probe`](../../crates/herbatka/src/b
 | Per-worker `total_worker_s` | ~`4.0` s each |
 
 **Interpretation:** With **concurrent TCP handlers**, the four workers overlap framed sessions; **`total_wall_s` drops to ~one workload window** (~4 s) instead of ~serial **N × duration**. The **9th-client** watchdog completes in **~17 ms** here (well under the **10 s** qualitative bar) because it no longer waits behind full per-client soak queues on `accept`. Broker **`Mutex`** still serializes produce/fetch; heavy lock contention is a separate follow-up ([status.md](status.md) **Next Up**).
+
+### 2026-05-13 — short / release (Tokio accept + std thread per client, production binary)
+
+**Scope:** Same harness and profile; temp broker is the **release `herbatka` binary** after [`run`](../../crates/herbatka/src/tcp/server.rs) uses **Tokio** for **`accept`** and **`std::thread`** per client for **`handle_client`** (after `into_std()`).
+
+**Command:** `powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tcp_concurrency_baseline.ps1 -Short -Release` (or the equivalent `.sh`).
+
+**Results (single run; expect noise):**
+
+| Metric | Value |
+|--------|-------|
+| `probe_summary` `total_wall_s` | ~`3.99` |
+| `probe_summary` `clients` / `duration_per_client_s` | `4` / `3.0` |
+| `probe_watchdog_ok` `elapsed_ms` | ~`16.6` |
+| Per-worker `total_worker_s` | ~`4.0` s each |
+
+**Interpretation:** In line with the **per-connection OS thread** row: Tokio here mainly **modernizes bind/accept**; **`handle_client`** and the broker **`Mutex`** are unchanged. **`set_nonblocking(false)`** after `into_std()` was required for correct framed reads under load on the capture host (Windows).
 
 ## Startup Replay Benchmarks
 

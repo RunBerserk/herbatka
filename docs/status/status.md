@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-05-12
+Last updated: 2026-05-13
 
 ## Current Phase
 
@@ -19,13 +19,13 @@ History extracted to [done.md](done.md).
 - **`Message.timestamp` → `u64` epoch ms:** [roadmap.md](roadmap.md) — domain type aligned with segment encoding; [`now_epoch_millis`](../../crates/herbatka/src/time.rs).
 - **v1 concurrency — (2) measure / reproduce:** Baseline harness + script + dated entry — [benchmarks.md — TCP concurrency baseline measurement](benchmarks.md#tcp-concurrency-baseline-measurement-pre-step-3).
 - **v1 concurrency — minimal concurrent TCP accepts:** [`serve`](../../crates/herbatka/src/tcp/server.rs) (`std::thread::spawn` per accepted connection); integration test `tcp_framed_two_clients_concurrent_produce` in [`tcp_server_smoke.rs`](../../crates/herbatka/tests/tcp_server_smoke.rs).
+- **v1 concurrency — Tokio TCP runtime (Phase A):** broker binary [`#[tokio::main]`](../../crates/herbatka/src/main.rs); production [`run`](../../crates/herbatka/src/tcp/server.rs) uses **`tokio::net::TcpListener`** for async **`accept`**, then **`into_std()`** + **`std::thread`** per connection for sync [`handle_client`](../../crates/herbatka/src/tcp/server.rs) (wire unchanged). Tests keep blocking [`serve`](../../crates/herbatka/src/tcp/server.rs).
 
 ## Next Up
 
 **v1 concurrency** — criteria: [benchmarks.md — v1 TCP concurrency acceptance criteria](benchmarks.md#v1-tcp-concurrency-acceptance-criteria); baseline: [benchmarks.md — TCP concurrency baseline measurement](benchmarks.md#tcp-concurrency-baseline-measurement-pre-step-3) (see [Known Gaps / Risks](#known-gaps--risks); wire format unchanged—transport/runtime only unless you add wire v2 on purpose):
 
-2. **Tokio (optional)** — `#[tokio::main]`, accept loop + `spawn` per connection, async I/O; **Tokio** is a likely direction; same on-the-wire bytes as [tcp-wire-protocol.md](../reference/tcp-wire-protocol.md). May need async framing helpers.
-3. **Broker lock / throughput** — e.g. `RwLock`, broker actor + channel, or `tokio::sync::Mutex`; prove with tests targeted at the acceptance bar (may follow optional Tokio work above).
+2. **Broker lock / throughput** — e.g. `RwLock`, broker actor + channel, or `tokio::sync::Mutex`; prove with tests targeted at the acceptance bar. Optional later: **async framing** / true async I/O (Phase B) instead of `spawn_blocking` around [`handle_client`](../../crates/herbatka/src/tcp/server.rs).
 
 - Cut v1 / tag — Changelog + version bump when you declare feature-complete (CHANGELOG.md + semver).
 
@@ -43,7 +43,7 @@ History extracted to [done.md](done.md).
 
 ## Known Gaps / Risks
 
-- **Concurrency is a v1 problem:** TCP **accept** is concurrent (each connection runs on its own OS thread via [`serve`](../../crates/herbatka/src/tcp/server.rs)); the shared [`Broker`](../../crates/herbatka/src/broker/core.rs) is still behind a **single `Arc<Mutex<Broker>>`** (`crates/herbatka/src/main.rs`, `tcp/server.rs`), so produce/fetch work remains serialized until lock strategy improves. **Likely follow-up direction:** **Tokio** for async I/O and structured tasks; the mutex on shared `Broker` state may still need a deliberate strategy (e.g. `tokio::sync::Mutex`, `RwLock`, or a single broker task + channels)—Tokio alone does not remove that design choice.
+- **Concurrency is a v1 problem:** The **`herbatka`** binary uses **Tokio** for TCP **bind/accept** ([`run`](../../crates/herbatka/src/tcp/server.rs)); each accepted socket is handled on a **`std::thread`** running sync **`handle_client`**. The shared [`Broker`](../../crates/herbatka/src/broker/core.rs) remains behind **`Arc<Mutex<Broker>>`**, so produce/fetch body work is still **serialized** until lock strategy improves. Integration tests use blocking [`serve`](../../crates/herbatka/src/tcp/server.rs). **Next direction:** `RwLock` / actor / `tokio::sync::Mutex` and optional **async wire** (Phase B).
 
 ## Notes
 

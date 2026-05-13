@@ -8,7 +8,8 @@ use herbatka::observability;
 use herbatka::tcp::server;
 use tracing::error;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     observability::init();
     let config_path =
         std::env::var("HERBATKA_CONFIG").unwrap_or_else(|_| "herbatka.toml".to_string());
@@ -26,7 +27,7 @@ fn main() {
         return;
     }
     let broker = Arc::new(Mutex::new(broker));
-    if let Err(e) = server::run(bind_addr.as_str(), broker) {
+    if let Err(e) = server::run(bind_addr.as_str(), broker).await {
         if e.kind() == io::ErrorKind::AddrInUse {
             error!(
                 "server error: {e}\n\
