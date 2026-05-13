@@ -4,13 +4,13 @@ use herbatka::tcp::frame::{
     HANDSHAKE_CLIENT_V1, HEADER_LEN, MAX_FRAME_PAYLOAD, OP_PRODUCE, WIRE_VERSION_V1,
     decode_response_frame, encode_fetch, encode_produce, encode_topic_bounds, read_frame,
 };
-use herbatka::tcp::server::handle_client;
+use herbatka::tcp::server::{handle_client, serve};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn tcp_test_dir(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
@@ -403,4 +403,56 @@ fn tcp_framed_topic_bounds_roundtrip() {
     drop(reader);
     drop(client);
     server_thread.join().expect("join");
+}
+
+#[test]
+fn tcp_framed_two_clients_concurrent_produce() {
+    let dir = tcp_test_dir("concurrent_two");
+    let broker = Arc::new(Mutex::new(Broker::with_data_dir(dir)));
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    let broker_srv = Arc::clone(&broker);
+    let _server_thread = thread::spawn(move || {
+        let _ = serve(listener, broker_srv);
+    });
+
+    let barrier = Arc::new(Barrier::new(2));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut client_handles = vec![];
+    for id in 0..2 {
+        let barrier = Arc::clone(&barrier);
+        client_handles.push(thread::spawn(move || {
+            let topic = format!("cc-topic-{id}");
+            let mut stream = TcpStream::connect(addr).expect("connect");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            stream
+                .write_all(HANDSHAKE_CLIENT_V1)
+                .expect("handshake write");
+            stream.flush().expect("flush handshake");
+            let mut ack = String::new();
+            reader.read_line(&mut ack).expect("ack read");
+            assert_eq!(
+                ack.trim_end_matches(['\r', '\n']),
+                "HERBATKA OK/1",
+                "unexpected ack: {ack:?}"
+            );
+            barrier.wait();
+            let body = format!("payload-{id}");
+            let p_frame = encode_produce(&topic, body.as_bytes()).expect("encode produce");
+            stream.write_all(&p_frame).expect("produce");
+            stream.flush().expect("flush produce");
+            let r = read_frame(&mut reader).expect("produce response");
+            assert_eq!(
+                decode_response_frame(&r).expect("decode"),
+                Response::OkOffset(0)
+            );
+            assert!(
+                Instant::now() < deadline,
+                "concurrent produce exceeded deadline"
+            );
+        }));
+    }
+    for h in client_handles {
+        h.join().expect("client thread");
+    }
 }

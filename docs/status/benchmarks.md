@@ -17,7 +17,7 @@ Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker pr
 
 - **Minimum `N = 8`** simultaneous **framed v1** TCP connections after `HERBATKA WIRE/1` handshake ([tcp-wire-protocol.md](../reference/tcp-wire-protocol.md)).
 - Each connection keeps the socket open and performs the workload below for at least **60 s** (not connect-disconnect-only).
-- **Two dimensions** must both be exercised in the eventual harness (step 3+): (a) **overlapping connection lifetimes** (several clients active at the same wall time — today the accept loop in [`server::run`](../../crates/herbatka/src/tcp/server.rs) serializes `handle_client` until disconnect); (b) **`Arc<Mutex<Broker>>` contention** under concurrent produce/fetch from those connections.
+- **Two dimensions** for the full soak harness: (a) **overlapping framed connection lifetimes** (several clients doing produce/fetch at the same wall time — [`serve`](../../crates/herbatka/src/tcp/server.rs) runs each connection on its **own thread** after `accept`); (b) **`Arc<Mutex<Broker>>` contention** under concurrent produce/fetch from those connections (broker work is still serialized on the mutex until lock strategy improves).
 
 ### Wire mode
 
@@ -48,9 +48,11 @@ Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker pr
 
 ## TCP concurrency baseline measurement (pre-step 3)
 
-### 2026-05-12 — scripted short run (release)
+Dated **probe** runs using [`tcp_concurrency_probe`](../../crates/herbatka/src/bin/tcp_concurrency_probe.rs) and the baseline scripts. Rows may mix **before** and **after** per-connection TCP threads (`serve`); read each subsection’s **Scope**.
 
-**Scope:** Current broker TCP path serializes **`handle_client`** in [`server::run`](../../crates/herbatka/src/tcp/server.rs) before the next `accept`, with shared state behind [`Arc<Mutex<Broker>>`](../../crates/herbatka/src/main.rs). This entry records **observed** timings from the repo harness (not a claim that the [acceptance criteria](#v1-tcp-concurrency-acceptance-criteria) bar is met).
+### 2026-05-12 — short / release (serial accept, historical)
+
+**Scope (historical):** This row was captured when the broker still ran **`handle_client` inline in the accept loop** (no overlapping TCP sessions). Shared state is still [`Arc<Mutex<Broker>>`](../../crates/herbatka/src/main.rs). See the follow-up row for **per-connection threads** (`serve`).
 
 **Harness:**
 
@@ -70,7 +72,24 @@ Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker pr
 | `probe_watchdog_ok` `elapsed_ms` | ~`15_939` |
 | Per-worker `total_worker_s` (printed one line per `client_id`) | ~`15.9`, `8.0`, `12.0`, `4.0` s (order depends which connection the OS schedules first) |
 
-**Interpretation:** Total wall time is approximately **serial** service of each long-lived framed session (plus probe overhead). Several workers show sub-millisecond `connect_ms` while `handshake_ms` is large: on this stack **`TcpStream::connect` can return before the application has `accept`ed**, so queue wait often appears under **`handshake_ms`** (time until `HERBATKA OK/1` and framed work begin), not under `connect_ms`. The **9th-client** watchdog starts after the first framed handshake completes elsewhere and then competes for `accept` behind the remaining workers; **~16 s** for handshake + one Produce + one Fetch is **far beyond** the **10 s** qualitative SLO in the acceptance criteria—expected until concurrent accept / routing lands (Next Up in [status.md](status.md)).
+**Interpretation:** Total wall time is approximately **serial** service of each long-lived framed session (plus probe overhead) because **broker** work was still serialized on one mutex even though only one TCP handler ran at a time. Several workers show sub-millisecond `connect_ms` while `handshake_ms` is large: on this stack **`TcpStream::connect` can return before the application has `accept`ed**, so queue wait often appears under **`handshake_ms`** (time until `HERBATKA OK/1` and framed work begin), not under `connect_ms`. The **9th-client** watchdog starts after the first framed handshake completes elsewhere and then competes for `accept` behind the remaining workers; **~16 s** for handshake + one Produce + one Fetch is **far beyond** the **10 s** qualitative SLO in the acceptance criteria—expected for that historical build.
+
+### 2026-05-12 — scripted short run after per-connection TCP threads (release)
+
+**Scope:** Same harness and profile as the row above, after [`serve`](../../crates/herbatka/src/tcp/server.rs) spawns a **thread per accepted connection**; broker body still uses **`Arc<Mutex<Broker>>`**.
+
+**Command:** `powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tcp_concurrency_baseline.ps1 -Short -Release` (or the equivalent `.sh`).
+
+**Results (single run; expect noise):**
+
+| Metric | Value |
+|--------|-------|
+| `probe_summary` `total_wall_s` | ~`3.98` |
+| `probe_summary` `clients` / `duration_per_client_s` | `4` / `3.0` |
+| `probe_watchdog_ok` `elapsed_ms` | ~`16.5` |
+| Per-worker `total_worker_s` | ~`4.0` s each |
+
+**Interpretation:** With **concurrent TCP handlers**, the four workers overlap framed sessions; **`total_wall_s` drops to ~one workload window** (~4 s) instead of ~serial **N × duration**. The **9th-client** watchdog completes in **~17 ms** here (well under the **10 s** qualitative bar) because it no longer waits behind full per-client soak queues on `accept`. Broker **`Mutex`** still serializes produce/fetch; heavy lock contention is a separate follow-up ([status.md](status.md) **Next Up**).
 
 ## Startup Replay Benchmarks
 

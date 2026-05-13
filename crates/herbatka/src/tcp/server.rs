@@ -13,22 +13,35 @@ use herbatka_wire::tcp::protocol::{Request, Response, format_response, parse_req
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use tracing::{debug, error, info, warn};
 
-pub fn run(addr: &str, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
-    let listener = TcpListener::bind(addr)?;
-    info!(%addr, "herbatka tcp listening");
+/// Accept connections on `listener` and handle each client on a dedicated thread.
+/// Shared broker state is still guarded by the `Arc<Mutex<Broker>>` inside [`handle_client`].
+pub fn serve(listener: TcpListener, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                if let Err(e) = handle_client(stream, &broker) {
-                    error!("client handling error: {e}");
-                }
+                let broker = Arc::clone(&broker);
+                thread::Builder::new()
+                    .name("herbatka-tcp".to_string())
+                    .spawn(move || {
+                        if let Err(e) = handle_client(stream, &broker) {
+                            error!("client handling error: {e}");
+                        }
+                    })
+                    .expect("spawn herbatka tcp client thread");
             }
             Err(e) => warn!("accept error: {e}"),
         }
     }
     Ok(())
+}
+
+pub fn run(addr: &str, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
+    let listener = TcpListener::bind(addr)?;
+    info!(%addr, "herbatka tcp listening");
+    serve(listener, broker)
 }
 
 pub fn handle_client(mut stream: TcpStream, broker: &Arc<Mutex<Broker>>) -> io::Result<()> {

@@ -121,6 +121,8 @@ These use `herbatka_wire::tcp::frame::perform_client_handshake` (or the same byt
 
 ## Implementation notes (herbatka server)
 
+**Accept loop:** [`serve`](../../crates/herbatka/src/tcp/server.rs) handles each accepted TCP connection on a dedicated **OS thread**; [`run`](../../crates/herbatka/src/tcp/server.rs) binds then calls `serve`. Broker mutations for produce/fetch still go through a **single `Arc<Mutex<Broker>>`**, so log writes remain serialized at the broker layer until a separate locking/actor strategy is adopted.
+
 Behavior of [`run_framed_connection`](../../crates/herbatka/src/tcp/server.rs) in v1:
 
 | Situation | Server behavior |

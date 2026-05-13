@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **TCP server:** each accepted client connection is handled on a **dedicated thread** ([`serve`](crates/herbatka/src/tcp/server.rs)); shared broker state remains `Arc<Mutex<Broker>>`. Integration test `tcp_framed_two_clients_concurrent_produce` (`tcp_server_smoke`).
+
 - **`herbatka` library:** `Message.timestamp` is now **`u64` Unix epoch milliseconds** (same as segment record encoding). **Breaking** for callers that used `std::time::SystemTime` on `Message`. Use `herbatka::time::now_epoch_millis` for current time at produce boundaries. Rationale: [roadmap.md](docs/status/roadmap.md) — Message Timestamp Representation.
 
 ### Added
