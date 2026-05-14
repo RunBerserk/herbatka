@@ -17,14 +17,17 @@ use herbatka_wire::tcp::frame::{
 use herbatka_wire::tcp::protocol::{Request, Response, format_response, parse_request};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use tokio::net::TcpListener as TokioTcpListener;
 use tracing::{debug, error, info, warn};
 
+/// Shared broker handle: fetch and topic-bounds use a **read** lock; produce and topic creation use a **write** lock.
+pub type SharedBroker = Arc<RwLock<Broker>>;
+
 /// Accept connections on `listener` and handle each client on a dedicated thread.
-/// Shared broker state is still guarded by the `Arc<Mutex<Broker>>` inside [`handle_client`].
-pub fn serve(listener: TcpListener, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
+/// Shared broker state is guarded by [`SharedBroker`] inside [`handle_client`].
+pub fn serve(listener: TcpListener, broker: SharedBroker) -> io::Result<()> {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
@@ -49,7 +52,7 @@ pub fn serve(listener: TcpListener, broker: Arc<Mutex<Broker>>) -> io::Result<()
 /// [`tokio::net::TcpStream::into_std`]. Callers rely on **blocking** `std::net::TcpStream` I/O in
 /// [`handle_client`]; after `into_std()` we set **`set_nonblocking(false)`** (needed on some
 /// platforms, e.g. Windows, so `read_exact` / framed reads behave reliably).
-pub async fn run(addr: &str, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
+pub async fn run(addr: &str, broker: SharedBroker) -> io::Result<()> {
     let listener = TcpListener::bind(addr)?;
     listener.set_nonblocking(true)?;
     let listener = TokioTcpListener::from_std(listener)?;
@@ -72,7 +75,7 @@ pub async fn run(addr: &str, broker: Arc<Mutex<Broker>>) -> io::Result<()> {
 
 /// Move an accepted Tokio TCP stream onto a **blocking** `std::net::TcpStream` and run
 /// [`handle_client`] on a dedicated OS thread (detached).
-fn spawn_client_thread(stream: tokio::net::TcpStream, broker: Arc<Mutex<Broker>>) {
+fn spawn_client_thread(stream: tokio::net::TcpStream, broker: SharedBroker) {
     let std_stream = match stream.into_std() {
         Ok(stream) => stream,
         Err(e) => {
@@ -98,7 +101,7 @@ fn spawn_client_thread(stream: tokio::net::TcpStream, broker: Arc<Mutex<Broker>>
     }
 }
 
-pub fn handle_client(mut stream: TcpStream, broker: &Arc<Mutex<Broker>>) -> io::Result<()> {
+pub fn handle_client(mut stream: TcpStream, broker: &SharedBroker) -> io::Result<()> {
     debug!(peer = ?stream.peer_addr(), "connected");
 
     let first_raw = match read_first_line(&mut stream) {
@@ -159,7 +162,7 @@ fn is_handshake_v1(raw: &[u8]) -> bool {
     s == b"HERBATKA WIRE/1"
 }
 
-fn run_framed_connection(mut stream: TcpStream, broker: &Arc<Mutex<Broker>>) -> io::Result<()> {
+fn run_framed_connection(mut stream: TcpStream, broker: &SharedBroker) -> io::Result<()> {
     loop {
         let frame = match read_frame(&mut stream) {
             Ok(f) => f,
@@ -196,7 +199,7 @@ fn run_framed_connection(mut stream: TcpStream, broker: &Arc<Mutex<Broker>>) -> 
     }
 }
 
-fn dispatch_request(request: Request, broker: &Arc<Mutex<Broker>>) -> Response {
+fn dispatch_request(request: Request, broker: &SharedBroker) -> Response {
     match request {
         Request::Produce { topic, payload } => handle_produce(&topic, &payload, broker),
         Request::Fetch { topic, offset } => handle_fetch(&topic, offset, broker),
@@ -204,8 +207,8 @@ fn dispatch_request(request: Request, broker: &Arc<Mutex<Broker>>) -> Response {
     }
 }
 
-fn handle_topic_bounds(topic: &str, broker: &Arc<Mutex<Broker>>) -> Response {
-    let broker_guard = match broker.lock() {
+fn handle_topic_bounds(topic: &str, broker: &SharedBroker) -> Response {
+    let broker_guard = match broker.read() {
         Ok(guard) => guard,
         Err(_) => return Response::Error("internal lock error".to_string()),
     };
@@ -219,8 +222,8 @@ fn handle_topic_bounds(topic: &str, broker: &Arc<Mutex<Broker>>) -> Response {
     }
 }
 
-fn handle_produce(topic: &str, payload: &[u8], broker: &Arc<Mutex<Broker>>) -> Response {
-    let mut broker_guard = match broker.lock() {
+fn handle_produce(topic: &str, payload: &[u8], broker: &SharedBroker) -> Response {
+    let mut broker_guard = match broker.write() {
         Ok(guard) => guard,
         Err(_) => return Response::Error("internal lock error".to_string()),
     };
@@ -240,8 +243,8 @@ fn handle_produce(topic: &str, payload: &[u8], broker: &Arc<Mutex<Broker>>) -> R
     }
 }
 
-fn handle_fetch(topic: &str, offset: u64, broker: &Arc<Mutex<Broker>>) -> Response {
-    let broker_guard = match broker.lock() {
+fn handle_fetch(topic: &str, offset: u64, broker: &SharedBroker) -> Response {
+    let broker_guard = match broker.read() {
         Ok(guard) => guard,
         Err(_) => return Response::Error("internal lock error".to_string()),
     };

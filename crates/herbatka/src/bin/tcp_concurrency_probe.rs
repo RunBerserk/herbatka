@@ -1,5 +1,5 @@
 //! Drive multiple framed TCP clients against a running broker to capture baseline
-//! concurrency behavior (serial `accept` + `handle_client` in `tcp/server.rs`).
+//! concurrency behavior (overlapping framed TCP sessions against one broker process).
 //!
 //! Usage: `tcp_concurrency_probe --addr HOST:PORT [options]`
 //! See `USAGE` for flags.

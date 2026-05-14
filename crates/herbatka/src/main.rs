@@ -1,11 +1,11 @@
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use herbatka::broker::core::Broker;
 use herbatka::config::load_broker_config;
 use herbatka::observability;
-use herbatka::tcp::server;
+use herbatka::tcp::server::{self, SharedBroker};
 use tracing::error;
 
 #[tokio::main]
@@ -26,7 +26,7 @@ async fn main() {
         error!("broker startup discovery failed: {:?}", e);
         return;
     }
-    let broker = Arc::new(Mutex::new(broker));
+    let broker: SharedBroker = Arc::new(RwLock::new(broker));
     if let Err(e) = server::run(bind_addr.as_str(), broker).await {
         if e.kind() == io::ErrorKind::AddrInUse {
             error!(

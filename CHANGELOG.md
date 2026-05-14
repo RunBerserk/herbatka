@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **TCP server:** production binary uses **Tokio** for TCP bind/accept (`#[tokio::main]`, async [`run`](crates/herbatka/src/tcp/server.rs)), then **`std::thread`** per connection for sync [`handle_client`](crates/herbatka/src/tcp/server.rs) after `into_std()`. Integration tests use blocking [`serve`](crates/herbatka/src/tcp/server.rs); `tcp_framed_two_clients_concurrent_produce` in `tcp_server_smoke`. Shared broker state remains `Arc<Mutex<Broker>>`.
+- **TCP server:** production binary uses **Tokio** for TCP bind/accept (`#[tokio::main]`, async [`run`](crates/herbatka/src/tcp/server.rs)), then **`std::thread`** per connection for sync [`handle_client`](crates/herbatka/src/tcp/server.rs) after `into_std()`. Integration tests use blocking [`serve`](crates/herbatka/src/tcp/server.rs). Shared broker state is [`SharedBroker`](crates/herbatka/src/tcp/server.rs) (`Arc<RwLock<Broker>>`): **Fetch** / **TopicBounds** use a read lock; **Produce** / topic creation use a write lock. **Breaking** for embedders: `serve`, `run`, and `handle_client` now take `SharedBroker` instead of `Arc<Mutex<Broker>>`. New integration test `tcp_framed_concurrent_fetch_same_topic` in `tcp_server_smoke`.
 
 - **`herbatka` library:** `Message.timestamp` is now **`u64` Unix epoch milliseconds** (same as segment record encoding). **Breaking** for callers that used `std::time::SystemTime` on `Message`. Use `herbatka::time::now_epoch_millis` for current time at produce boundaries. Rationale: [roadmap.md](docs/status/roadmap.md) — Message Timestamp Representation.
 

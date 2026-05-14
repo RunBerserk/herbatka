@@ -121,7 +121,7 @@ These use `herbatka_wire::tcp::frame::perform_client_handshake` (or the same byt
 
 ## Implementation notes (herbatka server)
 
-**Accept loop:** The **`herbatka`** binary uses **Tokio** ([`run`](../../crates/herbatka/src/tcp/server.rs)) for **`TcpListener::bind`** / **`accept`** (listener upgraded from a **non-blocking** `std::net::TcpListener` via **`from_std`**), then **`into_std()`** on each accepted socket, **`set_nonblocking(false)`**, and a **dedicated `std::thread`** for sync [`handle_client`](../../crates/herbatka/src/tcp/server.rs). Integration tests use blocking [`serve`](../../crates/herbatka/src/tcp/server.rs). Broker mutations for produce/fetch still go through a **single `Arc<Mutex<Broker>>`**, so log writes remain serialized at the broker layer until a separate locking/actor strategy is adopted.
+**Accept loop:** The **`herbatka`** binary uses **Tokio** ([`run`](../../crates/herbatka/src/tcp/server.rs)) for **`TcpListener::bind`** / **`accept`** (listener upgraded from a **non-blocking** `std::net::TcpListener` via **`from_std`**), then **`into_std()`** on each accepted socket, **`set_nonblocking(false)`**, and a **dedicated `std::thread`** for sync [`handle_client`](../../crates/herbatka/src/tcp/server.rs). Integration tests use blocking [`serve`](../../crates/herbatka/src/tcp/server.rs). Broker access uses **[`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)** (`Arc<RwLock<Broker>>`): framed **Fetch** / **TopicBounds** take a **read** lock (so concurrent reads can overlap); **Produce** and topic creation take a **write** lock (writes remain globally serialized at the broker layer).
 
 Behavior of [`run_framed_connection`](../../crates/herbatka/src/tcp/server.rs) in v1:
 

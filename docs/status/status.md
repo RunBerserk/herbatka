@@ -20,12 +20,13 @@ History extracted to [done.md](done.md).
 - **v1 concurrency — (2) measure / reproduce:** Baseline harness + script + dated entry — [benchmarks.md — TCP concurrency baseline measurement](benchmarks.md#tcp-concurrency-baseline-measurement-pre-step-3).
 - **v1 concurrency — minimal concurrent TCP accepts:** [`serve`](../../crates/herbatka/src/tcp/server.rs) (`std::thread::spawn` per accepted connection); integration test `tcp_framed_two_clients_concurrent_produce` in [`tcp_server_smoke.rs`](../../crates/herbatka/tests/tcp_server_smoke.rs).
 - **v1 concurrency — Tokio TCP runtime (Phase A):** broker binary [`#[tokio::main]`](../../crates/herbatka/src/main.rs); production [`run`](../../crates/herbatka/src/tcp/server.rs) uses **`tokio::net::TcpListener`** for async **`accept`**, then **`into_std()`** + **`std::thread`** per connection for sync [`handle_client`](../../crates/herbatka/src/tcp/server.rs) (wire unchanged). Tests keep blocking [`serve`](../../crates/herbatka/src/tcp/server.rs).
+- **v1 concurrency — broker `RwLock` ([`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)):** **`Arc<RwLock<Broker>>`**; fetch / topic bounds use read lock, produce / `create_topic` write lock; integration test **`tcp_framed_concurrent_fetch_same_topic`** in [`tcp_server_smoke.rs`](../../crates/herbatka/tests/tcp_server_smoke.rs). Optional re-baseline: dated **RwLock** subsection in [benchmarks.md](benchmarks.md).
 
 ## Next Up
 
-**v1 concurrency** — criteria: [benchmarks.md — v1 TCP concurrency acceptance criteria](benchmarks.md#v1-tcp-concurrency-acceptance-criteria); baseline: [benchmarks.md — TCP concurrency baseline measurement](benchmarks.md#tcp-concurrency-baseline-measurement-pre-step-3) (see [Known Gaps / Risks](#known-gaps--risks); wire format unchanged—transport/runtime only unless you add wire v2 on purpose):
+**v1 concurrency (optional follow-ups)** — criteria: [benchmarks.md — v1 TCP concurrency acceptance criteria](benchmarks.md#v1-tcp-concurrency-acceptance-criteria); baseline: [benchmarks.md — TCP concurrency baseline measurement](benchmarks.md#tcp-concurrency-baseline-measurement-pre-step-3) (see [Known Gaps / Risks](#known-gaps--risks); wire format unchanged unless you add wire v2 on purpose):
 
-2. **Broker lock / throughput** — e.g. `RwLock`, broker actor + channel, or `tokio::sync::Mutex`; prove with tests targeted at the acceptance bar. Optional later: **async framing** / true async I/O (Phase B) instead of `spawn_blocking` around [`handle_client`](../../crates/herbatka/src/tcp/server.rs).
+2. **Further broker throughput** — e.g. broker actor + channel, per-topic locking, or **`tokio::sync::Mutex`** with async handlers; prove with the acceptance bar if you pursue it. Optional later: **async framing** / true async I/O (Phase B) around [`handle_client`](../../crates/herbatka/src/tcp/server.rs).
 
 - Cut v1 / tag — Changelog + version bump when you declare feature-complete (CHANGELOG.md + semver).
 
@@ -43,7 +44,7 @@ History extracted to [done.md](done.md).
 
 ## Known Gaps / Risks
 
-- **Concurrency is a v1 problem:** The **`herbatka`** binary uses **Tokio** for TCP **bind/accept** ([`run`](../../crates/herbatka/src/tcp/server.rs)); each accepted socket is handled on a **`std::thread`** running sync **`handle_client`**. The shared [`Broker`](../../crates/herbatka/src/broker/core.rs) remains behind **`Arc<Mutex<Broker>>`**, so produce/fetch body work is still **serialized** until lock strategy improves. Integration tests use blocking [`serve`](../../crates/herbatka/src/tcp/server.rs). **Next direction:** `RwLock` / actor / `tokio::sync::Mutex` and optional **async wire** (Phase B).
+- **Concurrency:** The **`herbatka`** binary uses **Tokio** for TCP **bind/accept** ([`run`](../../crates/herbatka/src/tcp/server.rs)); each accepted socket is handled on a **`std::thread`** running sync **`handle_client`**. The shared [`Broker`](../../crates/herbatka/src/broker/core.rs) is behind **[`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)** (`Arc<RwLock<Broker>>`): **Fetch** / **TopicBounds** can run concurrently (read lock); **Produce** / topic creation still **serialize on the write lock** (global for the process). Integration tests use blocking [`serve`](../../crates/herbatka/src/tcp/server.rs). **Next direction (optional):** broker actor, finer-grained locking, or **async wire** (Phase B).
 
 ## Notes
 
