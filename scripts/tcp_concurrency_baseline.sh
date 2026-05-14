@@ -5,18 +5,29 @@ set -euo pipefail
 
 RELEASE=""
 SHORT=""
+FETCH_HEAVY=""
+MAX_PRESSURE=""
 for arg in "$@"; do
   case "$arg" in
     --release | -release) RELEASE=1 ;;
     --short | -short) SHORT=1 ;;
+    --fetch-heavy | -fetch-heavy) FETCH_HEAVY=1 ;;
+    --max-pressure | -max-pressure) MAX_PRESSURE=1 ;;
     -h | --help)
-      echo "Usage: $0 [--release] [--short]"
-      echo "  --release  build and run broker + probe in release mode"
-      echo "  --short    4 clients x 3s workload (default: 8 x 60s)"
+      echo "Usage: $0 [--release] [--short] [--fetch-heavy|--max-pressure]"
+      echo "  --release      build and run broker + probe in release mode"
+      echo "  --short        4 clients x 3s workload (default: 8 x 60s)"
+      echo "  --fetch-heavy  tcp_concurrency_probe --profile fetch-heavy"
+      echo "  --max-pressure tcp_concurrency_probe --profile max-pressure (CPU-heavy)"
       exit 0
       ;;
   esac
 done
+
+if [[ -n "$FETCH_HEAVY" && -n "$MAX_PRESSURE" ]]; then
+  echo "error: use only one of --fetch-heavy or --max-pressure" >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -109,9 +120,14 @@ if [[ -n "$SHORT" ]]; then
 else
   PROBE_ARGS+=(--addr "$PROBE_ADDR" --duration-secs 60 --clients 8)
 fi
+if [[ -n "$FETCH_HEAVY" ]]; then
+  PROBE_ARGS+=(--profile fetch-heavy)
+elif [[ -n "$MAX_PRESSURE" ]]; then
+  PROBE_ARGS+=(--profile max-pressure)
+fi
 
 echo "Running probe: cargo ${PROBE_ARGS[*]}"
 cargo "${PROBE_ARGS[@]}"
 
 echo "Done."
-echo "Usage: $0 [--release] [--short]"
+echo "Usage: $0 [--release] [--short] [--fetch-heavy|--max-pressure]"

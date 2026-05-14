@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **v1 TCP concurrency acceptance criteria** in `docs/status/benchmarks.md` (checkable bar for multi-client framed TCP; links from `docs/status/status.md` and `docs/status/v1.md`).
-- TCP concurrency baseline harness: `tcp_concurrency_probe` binary, `scripts/tcp_concurrency_baseline.ps1` / `scripts/tcp_concurrency_baseline.sh`, and dated measurement notes in `docs/status/benchmarks.md`.
+- **tcp_concurrency_probe** `--profile default|fetch-heavy|max-pressure`: read-skew profiles burst-seed **512** produces per worker topic then a timed loop of **64** tail fetches + **1** produce per batch (`fetch-heavy` adds **1 ms** pacing per batch; `max-pressure` has no intentional sleeps). Prints **`probe_ops`** totals and `profile=` on **`probe_summary`**. Baseline scripts: **`-FetchHeavy`** / **`-MaxPressure`** (PowerShell) and **`--fetch-heavy`** / **`--max-pressure`** (bash). See [benchmarks.md](docs/status/benchmarks.md) — *tcp_concurrency_probe workload profiles*.
 - Herbatka v1.0 definition of done (`docs/status/v1.md`): single-node scope, CI verification checklist, explicit not-in-v1.0 features, pointers to roadmap and risks.
 - TCP protocol documentation: reference clients, minimal framed-client flow, and server implementation notes (`docs/reference/tcp-wire-protocol.md`).
 - Integration tests for TCP legacy error lines, CRLF handshake, framed decode recovery, and oversize framing (`tcp_server_smoke`).

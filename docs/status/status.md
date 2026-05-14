@@ -32,7 +32,7 @@ History extracted to [done.md](done.md).
 
 
 ## Later (TODO, not now)
-
+- **TCP concurrency probe profiles** (`--profile fetch-heavy` / `max-pressure`, scripts `-FetchHeavy` / `-MaxPressure`) — see [benchmarks.md — tcp_concurrency_probe workload profiles](benchmarks.md#tcp_concurrency_probe-workload-profiles); extend further if you need hotter shared-topic or CI soak.
 - **Protobuf on the wire** (replacing framed layout with protobuf RPC) — not the same as payload protobuf inside today’s frame body; only if a new protocol version is desired
 - QUIC transport
 - two additional testscenarios: (1. was carfleet,)  2. stock market, 3. logistics data

@@ -23,23 +23,62 @@ const USAGE: &str = "\
 usage: tcp_concurrency_probe --addr HOST:PORT [options]
 
 Options:
+  --addr HOST           broker listen address (required)
   --clients N           number of worker clients (default: 8)
   --duration-secs N     framed workload duration per client after handshake (default: 60)
+  --profile NAME        workload: default | fetch-heavy | max-pressure (default: default)
   --no-watchdog         do not run the 9th short-lived watchdog client
   --watchdog-topic S    topic for watchdog produce/fetch (default: v1cc-watchdog)
 
+Profiles:
+  default       ~66% produce / fetch mix with sleeps (historical baseline; v1 acceptance doc).
+  fetch-heavy   burst-seed per-topic messages then read-dominated loop + 1 ms pacing per batch.
+  max-pressure  same seed and read mix as fetch-heavy but no intentional sleeps (CPU-heavy).
+
 Notes:
-  With the current broker, TCP accepts are served one client at a time until disconnect.
-  Parallel `TcpStream::connect` calls may complete in the kernel backlog, but the server
-  only reads the framed handshake after `accept` runs; workers therefore serialize.
+  Production broker uses Tokio for bind/accept then one OS thread per connection for framed
+  I/O. Parallel connects may complete before accept; handshake_ms can include server-side queue.
 ";
+
+/// Messages to produce per worker before the timed phase (fetch-heavy / max-pressure).
+const SEED_PRODUCES: u32 = 512;
+/// Fetches per outer batch before one produce in read-skew timed loops.
+const FETCH_BATCH: u32 = 64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorkloadProfile {
+    Default,
+    FetchHeavy,
+    MaxPressure,
+}
+
+impl WorkloadProfile {
+    fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "default" => Ok(Self::Default),
+            "fetch-heavy" => Ok(Self::FetchHeavy),
+            "max-pressure" => Ok(Self::MaxPressure),
+            other => Err(format!(
+                "invalid --profile {other:?} (expected default | fetch-heavy | max-pressure)"
+            )),
+        }
+    }
+}
 
 struct Args {
     addr: String,
     clients: usize,
     duration: Duration,
+    profile: WorkloadProfile,
     watchdog: bool,
     watchdog_topic: String,
+}
+
+#[derive(Default, Clone, Copy)]
+struct OpCounters {
+    produce_ok: u64,
+    fetch_msg: u64,
+    fetch_none: u64,
 }
 
 fn main() {
@@ -91,6 +130,7 @@ fn run() -> Result<(), String> {
     let addr = args.addr.clone();
     let duration = args.duration;
     let clients = args.clients;
+    let profile = args.profile;
     let first_flag = Arc::clone(&first_handshake_done);
 
     let mut handles = Vec::new();
@@ -100,7 +140,14 @@ fn run() -> Result<(), String> {
         let first_flag = Arc::clone(&first_flag);
         let notify_tx = notify_tx.clone();
         handles.push(thread::spawn(move || {
-            let m = worker(id, &addr, duration, &first_flag, notify_tx.as_ref());
+            let m = worker(
+                id,
+                &addr,
+                duration,
+                profile,
+                &first_flag,
+                notify_tx.as_ref(),
+            );
             results.lock().expect("metrics lock").push(m);
         }));
     }
@@ -121,10 +168,24 @@ fn run() -> Result<(), String> {
         .map_err(|_| "metrics mutex poisoned")?;
     rows.sort_by_key(|r| r.client_id);
     for r in &rows {
-        println!(
-            "probe_worker client_id={} connect_ms={:.1} handshake_ms={:.1} workload_s={:.1} total_worker_s={:.1}",
-            r.client_id, r.connect_ms, r.handshake_ms, r.workload_s, r.total_worker_s
-        );
+        if profile == WorkloadProfile::Default {
+            println!(
+                "probe_worker client_id={} connect_ms={:.1} handshake_ms={:.1} workload_s={:.1} total_worker_s={:.1}",
+                r.client_id, r.connect_ms, r.handshake_ms, r.workload_s, r.total_worker_s
+            );
+        } else {
+            println!(
+                "probe_worker client_id={} connect_ms={:.1} handshake_ms={:.1} workload_s={:.1} total_worker_s={:.1} produce_ok={} fetch_msg={} fetch_none={}",
+                r.client_id,
+                r.connect_ms,
+                r.handshake_ms,
+                r.workload_s,
+                r.total_worker_s,
+                r.produce_ok,
+                r.fetch_msg,
+                r.fetch_none
+            );
+        }
     }
 
     if let Some(line) = watchdog_line {
@@ -132,14 +193,40 @@ fn run() -> Result<(), String> {
     }
 
     println!(
-        "probe_summary clients={} duration_per_client_s={:.1} total_wall_s={:.3}",
+        "probe_summary clients={} duration_per_client_s={:.1} total_wall_s={:.3} profile={}",
         clients,
         duration.as_secs_f64(),
-        wall.elapsed().as_secs_f64()
+        wall.elapsed().as_secs_f64(),
+        profile_label(profile)
     );
     println!("probe_note handshake_ms_includes_server_queue_when_tcp_connected_before_accept");
 
+    if profile != WorkloadProfile::Default {
+        let mut p = 0u64;
+        let mut fm = 0u64;
+        let mut fnone = 0u64;
+        for r in &rows {
+            p += r.produce_ok;
+            fm += r.fetch_msg;
+            fnone += r.fetch_none;
+        }
+        let total_ops = p + fm + fnone;
+        let wall_s = wall.elapsed().as_secs_f64().max(1e-9);
+        let ops_per_s = total_ops as f64 / wall_s;
+        println!(
+            "probe_ops produce_ok={p} fetch_msg={fm} fetch_none={fnone} total_ops={total_ops} ops_per_s_wall={ops_per_s:.1}"
+        );
+    }
+
     Ok(())
+}
+
+fn profile_label(p: WorkloadProfile) -> &'static str {
+    match p {
+        WorkloadProfile::Default => "default",
+        WorkloadProfile::FetchHeavy => "fetch-heavy",
+        WorkloadProfile::MaxPressure => "max-pressure",
+    }
 }
 
 #[derive(Debug)]
@@ -149,12 +236,16 @@ struct WorkerMetrics {
     handshake_ms: f64,
     workload_s: f64,
     total_worker_s: f64,
+    produce_ok: u64,
+    fetch_msg: u64,
+    fetch_none: u64,
 }
 
 fn worker(
     client_id: usize,
     addr: &str,
     duration: Duration,
+    profile: WorkloadProfile,
     first_handshake_done: &AtomicBool,
     notify_tx: Option<&mpsc::Sender<()>>,
 ) -> WorkerMetrics {
@@ -174,7 +265,16 @@ fn worker(
     }
 
     let t_work = Instant::now();
-    run_workload(&mut stream, client_id, duration);
+    let mut ops = OpCounters::default();
+    match profile {
+        WorkloadProfile::Default => run_workload_default(&mut stream, client_id, duration),
+        WorkloadProfile::FetchHeavy => {
+            run_workload_read_skew(&mut stream, client_id, duration, &mut ops, true);
+        }
+        WorkloadProfile::MaxPressure => {
+            run_workload_read_skew(&mut stream, client_id, duration, &mut ops, false);
+        }
+    }
     let workload_s = t_work.elapsed().as_secs_f64();
 
     drop(stream);
@@ -185,10 +285,13 @@ fn worker(
         handshake_ms,
         workload_s,
         total_worker_s: t_worker.elapsed().as_secs_f64(),
+        produce_ok: ops.produce_ok,
+        fetch_msg: ops.fetch_msg,
+        fetch_none: ops.fetch_none,
     }
 }
 
-fn run_workload(stream: &mut TcpStream, client_id: usize, duration: Duration) {
+fn run_workload_default(stream: &mut TcpStream, client_id: usize, duration: Duration) {
     let topic = format!("v1cc-{client_id}");
     let payload: Vec<u8> = b"probe-payload-512b-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         .iter()
@@ -202,33 +305,87 @@ fn run_workload(stream: &mut TcpStream, client_id: usize, duration: Duration) {
     while Instant::now() < deadline {
         // ~66% produce: two produces then one fetch per "cycle"
         for _ in 0..2 {
-            produce_one(stream, &topic, &payload, &mut next_offset);
+            produce_one(stream, &topic, &payload, &mut next_offset, None);
             thread::sleep(Duration::from_millis(330));
         }
-        fetch_one(stream, &topic, next_offset.saturating_sub(1));
+        fetch_one(stream, &topic, next_offset.saturating_sub(1), None);
         thread::sleep(Duration::from_millis(330));
     }
 }
 
-fn produce_one(stream: &mut TcpStream, topic: &str, body: &[u8], next_offset: &mut u64) {
+/// Burst-seed then read-dominated loop. `pace` adds 1 ms sleep per batch (fetch-heavy only).
+fn run_workload_read_skew(
+    stream: &mut TcpStream,
+    client_id: usize,
+    duration: Duration,
+    ops: &mut OpCounters,
+    pace: bool,
+) {
+    let topic = format!("v1cc-{client_id}");
+    let payload: Vec<u8> = b"probe-payload-512b-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        .iter()
+        .cycle()
+        .take(512)
+        .copied()
+        .collect();
+    let mut next_offset: u64 = 0;
+
+    for _ in 0..SEED_PRODUCES {
+        produce_one(stream, &topic, &payload, &mut next_offset, Some(ops));
+    }
+
+    let deadline = Instant::now() + duration;
+    while Instant::now() < deadline {
+        for _ in 0..FETCH_BATCH {
+            let tail = next_offset.saturating_sub(1);
+            fetch_one(stream, &topic, tail, Some(ops));
+        }
+        produce_one(stream, &topic, &payload, &mut next_offset, Some(ops));
+        if pace {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
+
+fn produce_one(
+    stream: &mut TcpStream,
+    topic: &str,
+    body: &[u8],
+    next_offset: &mut u64,
+    counts: Option<&mut OpCounters>,
+) {
     let frame = encode_produce(topic, body).expect("encode produce");
     stream.write_all(&frame).expect("write produce");
     stream.flush().expect("flush produce");
     let buf = read_frame(stream).expect("read produce response");
     match decode_response_frame(&buf).expect("decode produce response") {
-        Response::OkOffset(off) => *next_offset = off.saturating_add(1),
+        Response::OkOffset(off) => {
+            *next_offset = off.saturating_add(1);
+            if let Some(c) = counts {
+                c.produce_ok += 1;
+            }
+        }
         Response::Error(e) => panic!("produce error: {e}"),
         other => panic!("unexpected produce response: {other:?}"),
     }
 }
 
-fn fetch_one(stream: &mut TcpStream, topic: &str, offset: u64) {
+fn fetch_one(stream: &mut TcpStream, topic: &str, offset: u64, counts: Option<&mut OpCounters>) {
     let frame = encode_fetch(topic, offset).expect("encode fetch");
     stream.write_all(&frame).expect("write fetch");
     stream.flush().expect("flush fetch");
     let buf = read_frame(stream).expect("read fetch response");
     match decode_response_frame(&buf).expect("decode fetch response") {
-        Response::Message { .. } | Response::None => {}
+        Response::Message { .. } => {
+            if let Some(c) = counts {
+                c.fetch_msg += 1;
+            }
+        }
+        Response::None => {
+            if let Some(c) = counts {
+                c.fetch_none += 1;
+            }
+        }
         Response::Error(e) => panic!("fetch error: {e}"),
         other => panic!("unexpected fetch response: {other:?}"),
     }
@@ -274,6 +431,7 @@ fn parse_args() -> Result<Args, String> {
     let mut addr: Option<String> = None;
     let mut clients = 8usize;
     let mut duration_secs = 60u64;
+    let mut profile = WorkloadProfile::Default;
     let mut watchdog = true;
     let mut watchdog_topic = "v1cc-watchdog".to_string();
 
@@ -300,6 +458,12 @@ fn parse_args() -> Result<Args, String> {
                     .parse()
                     .map_err(|_| format!("invalid --duration-secs {v}"))?;
             }
+            "--profile" => {
+                let v = args
+                    .next()
+                    .ok_or_else(|| "--profile needs a value".to_string())?;
+                profile = WorkloadProfile::parse(&v)?;
+            }
             "--no-watchdog" => watchdog = false,
             "--watchdog-topic" => {
                 watchdog_topic = args
@@ -319,6 +483,7 @@ fn parse_args() -> Result<Args, String> {
         addr,
         clients,
         duration: Duration::from_secs(duration_secs),
+        profile,
         watchdog,
         watchdog_topic,
     })

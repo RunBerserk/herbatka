@@ -1,10 +1,15 @@
 param(
     [switch]$Release,
-    [switch]$Short
+    [switch]$Short,
+    [switch]$FetchHeavy,
+    [switch]$MaxPressure
 )
 
 $ErrorActionPreference = "Stop"
 
+if ($FetchHeavy -and $MaxPressure) {
+    throw "Use only one of -FetchHeavy or -MaxPressure"
+}
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repoRoot
 
@@ -82,6 +87,12 @@ listen_addr = "127.0.0.1:$port"
     else {
         $probeArgs += @("--addr", $probeAddr, "--duration-secs", "60", "--clients", "8")
     }
+    if ($FetchHeavy) {
+        $probeArgs += @("--profile", "fetch-heavy")
+    }
+    elseif ($MaxPressure) {
+        $probeArgs += @("--profile", "max-pressure")
+    }
 
     Write-Host "Running probe: cargo $($probeArgs -join ' ')"
     & cargo @probeArgs
@@ -105,5 +116,7 @@ finally {
 }
 
 Write-Host "Done."
-Write-Host "Usage: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tcp_concurrency_baseline.ps1 [-Release] [-Short]"
-Write-Host "Unix: bash ./scripts/tcp_concurrency_baseline.sh [--release] [--short]"
+Write-Host "Usage: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tcp_concurrency_baseline.ps1 [-Release] [-Short] [-FetchHeavy] [-MaxPressure]"
+Write-Host "  -FetchHeavy    tcp_concurrency_probe --profile fetch-heavy (read-skew + 1 ms batch pacing)"
+Write-Host "  -MaxPressure   tcp_concurrency_probe --profile max-pressure (read-skew, no sleeps; CPU-heavy)"
+Write-Host "Unix: bash ./scripts/tcp_concurrency_baseline.sh [--release] [--short] [--fetch-heavy|--max-pressure]"
