@@ -1,23 +1,39 @@
 sequenceDiagram
     participant C as Client
     participant S as TCPServer
-    participant P as ProtocolParser
+    participant P as Parser
     participant B as BrokerCore
     participant D as SegmentFile
     participant M as InMemoryLog
 
-    C->>S: PRODUCE topic payload
-    S->>P: parse_request(line)
-    P-->>S: Request::Produce
-    S->>B: produce(topic, message)
-    B->>D: append_to_segment_file(...)
-    B->>M: log.append(message)
-    B-->>S: offset
-    S-->>C: OK offset
-
-    C->>S: FETCH topic offset
-    S->>P: parse_request(line)
-    P-->>S: Request::Fetch
-    S->>B: fetch(topic, offset)
-    B-->>S: Option<Message>
-    S-->>C: MSG/NONE/ERR
+    alt Framed wire v1 (HERBATKA handshake then binary frames)
+        C->>S: PRODUCE frame
+        S->>P: decode framed request
+        P-->>S: Request::Produce
+        S->>B: produce(topic, message)
+        B->>D: append_to_segment_file(...)
+        B->>M: log.append(message)
+        B-->>S: offset
+        S-->>C: OK offset (frame)
+        C->>S: FETCH frame
+        S->>P: decode framed request
+        P-->>S: Request::Fetch
+        S->>B: fetch(topic, offset)
+        B-->>S: Option<Message>
+        S-->>C: MSG/NONE/ERR (frames)
+    else Legacy line protocol (first line is not handshake)
+        C->>S: PRODUCE topic payload (line)
+        S->>P: parse_request(line)
+        P-->>S: Request::Produce
+        S->>B: produce(topic, message)
+        B->>D: append_to_segment_file(...)
+        B->>M: log.append(message)
+        B-->>S: offset
+        S-->>C: OK offset
+        C->>S: FETCH topic offset (line)
+        S->>P: parse_request(line)
+        P-->>S: Request::Fetch
+        S->>B: fetch(topic, offset)
+        B-->>S: Option<Message>
+        S-->>C: MSG/NONE/ERR
+    end

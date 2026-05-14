@@ -4,7 +4,7 @@ Applications can treat Herbatka as **three logical lanes**—**heartbeat**, **co
 
 ## Diagrams
 
-Sources (Mermaid): [`logical-channels-topics.mmd`](../../assets/diagrams/mmd/logical-channels-topics.mmd), [`logical-channels-lanes.mmd`](../../assets/diagrams/mmd/logical-channels-lanes.mmd). Render to SVG with `@mermaid-js/mermaid-cli` next to other diagrams under `assets/diagrams/`.
+Sources (Mermaid): [`logical-channels-topics.mmd`](../../assets/diagrams/mmd/logical-channels-topics.mmd), [`logical-channels-lanes.mmd`](../../assets/diagrams/mmd/logical-channels-lanes.mmd). Render to SVG with `@mermaid-js/mermaid-cli` — see [assets/diagrams/README.md](../../assets/diagrams/README.md).
 
 ![One scope splits into three topic strings; broker stores opaque payloads](../../assets/diagrams/svg/logical-channels-topics.svg)
 

@@ -22,6 +22,7 @@ History extracted to [done.md](done.md).
 - **v1 concurrency — Tokio TCP runtime (Phase A):** broker binary [`#[tokio::main]`](../../crates/herbatka/src/main.rs); production [`run`](../../crates/herbatka/src/tcp/server.rs) uses **`tokio::net::TcpListener`** for async **`accept`**, then **`into_std()`** + **`std::thread`** per connection for sync [`handle_client`](../../crates/herbatka/src/tcp/server.rs) (wire unchanged). Tests keep blocking [`serve`](../../crates/herbatka/src/tcp/server.rs).
 - **v1 concurrency — broker `RwLock` ([`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)):** **`Arc<RwLock<Broker>>`**; fetch / topic bounds use read lock, produce / `create_topic` write lock; integration test **`tcp_framed_concurrent_fetch_same_topic`** in [`tcp_server_smoke.rs`](../../crates/herbatka/tests/tcp_server_smoke.rs). Optional re-baseline: dated **RwLock** subsection in [benchmarks.md](benchmarks.md).
 - **Cut v1 / tag:** [CHANGELOG.md](../../CHANGELOG.md) **1.0.0** (2026-05-14); workspace crates **1.0.0**; annotated tag **`v1.0.0`**.
+- **Mermaid / SVG diagrams (2026-05-14):** Refreshed [assets/diagrams/mmd/](../../assets/diagrams/mmd/) and matching SVGs — [request-flow](../../assets/diagrams/mmd/request-flow.mmd) documents framed wire v1 vs legacy line; [simulator-load-flow](../../assets/diagrams/mmd/simulator-load-flow.mmd) shows framed PRODUCE; [architecture-overview](../../assets/diagrams/mmd/architecture-overview.mmd) TCP caption; [assets/diagrams/README.md](../../assets/diagrams/README.md) lists regenerate commands; [ui-draft.md](../reference/ui-draft.md) defers to `fleet-ui-draft.mmd` only (no duplicate inline diagram).
 
 ## In Progress
 Polishing toward v1.0.0 — hardening pass
@@ -34,7 +35,7 @@ Polishing toward v1.0.0 — hardening pass
 
 
 ## Later (TODO, not now)
--update mermaid diagrams
+
 - **TCP concurrency probe profiles** (`--profile fetch-heavy` / `max-pressure`, scripts `-FetchHeavy` / `-MaxPressure`) — see [benchmarks.md — tcp_concurrency_probe workload profiles](benchmarks.md#tcp_concurrency_probe-workload-profiles); extend further if you need hotter shared-topic or CI soak.
 - **Protobuf on the wire** (replacing framed layout with protobuf RPC) — not the same as payload protobuf inside today’s frame body; only if a new protocol version is desired
 - QUIC transport

@@ -24,7 +24,7 @@ Convention: three **topic names** per scope (`<scope>.heartbeat`, `.control`, `.
 
 ![Logical channels: producers, lanes by suffix, consumers agree decode](assets/diagrams/svg/logical-channels-lanes.svg)
 
-Mermaid sources (regenerate SVG with `@mermaid-js/mermaid-cli`): [`logical-channels-topics.mmd`](assets/diagrams/mmd/logical-channels-topics.mmd), [`logical-channels-lanes.mmd`](assets/diagrams/mmd/logical-channels-lanes.mmd).
+Mermaid sources (regenerate SVG with `@mermaid-js/mermaid-cli`): [`logical-channels-topics.mmd`](assets/diagrams/mmd/logical-channels-topics.mmd), [`logical-channels-lanes.mmd`](assets/diagrams/mmd/logical-channels-lanes.mmd). Full list and copy-paste commands: [assets/diagrams/README.md](assets/diagrams/README.md).
 
 ## Architecture Overview
 

@@ -7,7 +7,7 @@ flowchart TD
     profile --> combine
     combine --> tick[TickLoop]
     tick --> send{SendEvent}
-    send -->|yes| produce[ProduceLineToBroker]
+    send -->|yes| produce["Write framed PRODUCE\n(handshake first; wire v1)"]
     send -->|no| skip[SkippedCounter]
     produce --> summary[SummaryCounters]
     skip --> summary

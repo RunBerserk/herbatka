@@ -2,7 +2,7 @@ flowchart LR
     producer[Producer CLI]
     consumer[Consumer CLI]
     simulator[Simulator CLI]
-    tcp[TCPServer]
+    tcp["TCPServer\n(framed v1 default; legacy line optional)"]
     broker[BrokerCore]
     mem[InMemoryLog]
     disk[TopicSegmentFiles]
