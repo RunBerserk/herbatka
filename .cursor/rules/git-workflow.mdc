@@ -1,0 +1,20 @@
+---
+description: No git commit or push without explicit permission; rules live in .cursor/rules
+alwaysApply: true
+---
+
+# Git and agent workflow
+
+## Commits and remotes
+
+- **Do not** run `git commit`, `git push`, `git merge`, rebase-to-remote, or any action that updates **remote** refs unless the user **explicitly** asks for that step in the same request.
+- **Do not** amend or rewrite published history (`push --force`, etc.) unless the user explicitly requests it and understands the impact.
+- Leave changes **uncommitted** in the working tree (or staged only if the user asked to stage) so they can review in a **second IDE (VS Code)** and commit themselves.
+
+## Staging
+
+- Prefer **not** staging unless the user asked to stage. If you stage to prepare a patch, say so briefly; default is unstaged edits for review.
+
+## Where project rules live
+
+- Cursor project rules for this repo are under **[`.cursor/rules/`](.cursor/rules/)** (`.mdc` files with YAML frontmatter). Add or edit rules there for persistent agent guidance.
