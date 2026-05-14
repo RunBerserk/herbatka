@@ -1,10 +1,10 @@
 # Project Status
 
-Last updated: 2026-05-13
+Last updated: 2026-05-14
 
 ## Current Phase
 
-External access (TCP) wire v1 baseline closed; remaining v1 items tracked under **Next Up**.
+**v1.0.0** shipped (annotated tag `v1.0.0`); optional TCP concurrency follow-ups remain under **Next Up**.
 
 ## Done
 
@@ -21,6 +21,7 @@ History extracted to [done.md](done.md).
 - **v1 concurrency — minimal concurrent TCP accepts:** [`serve`](../../crates/herbatka/src/tcp/server.rs) (`std::thread::spawn` per accepted connection); integration test `tcp_framed_two_clients_concurrent_produce` in [`tcp_server_smoke.rs`](../../crates/herbatka/tests/tcp_server_smoke.rs).
 - **v1 concurrency — Tokio TCP runtime (Phase A):** broker binary [`#[tokio::main]`](../../crates/herbatka/src/main.rs); production [`run`](../../crates/herbatka/src/tcp/server.rs) uses **`tokio::net::TcpListener`** for async **`accept`**, then **`into_std()`** + **`std::thread`** per connection for sync [`handle_client`](../../crates/herbatka/src/tcp/server.rs) (wire unchanged). Tests keep blocking [`serve`](../../crates/herbatka/src/tcp/server.rs).
 - **v1 concurrency — broker `RwLock` ([`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)):** **`Arc<RwLock<Broker>>`**; fetch / topic bounds use read lock, produce / `create_topic` write lock; integration test **`tcp_framed_concurrent_fetch_same_topic`** in [`tcp_server_smoke.rs`](../../crates/herbatka/tests/tcp_server_smoke.rs). Optional re-baseline: dated **RwLock** subsection in [benchmarks.md](benchmarks.md).
+- **Cut v1 / tag:** [CHANGELOG.md](../../CHANGELOG.md) **1.0.0** (2026-05-14); workspace crates **1.0.0**; annotated tag **`v1.0.0`**.
 
 ## Next Up
 
@@ -28,10 +29,9 @@ History extracted to [done.md](done.md).
 
 2. **Further broker throughput** — e.g. broker actor + channel, per-topic locking, or **`tokio::sync::Mutex`** with async handlers; prove with the acceptance bar if you pursue it. Optional later: **async framing** / true async I/O (Phase B) around [`handle_client`](../../crates/herbatka/src/tcp/server.rs).
 
-- Cut v1 / tag — Changelog + version bump when you declare feature-complete (CHANGELOG.md + semver).
-
 
 ## Later (TODO, not now)
+-update mermaid diagrams
 - **TCP concurrency probe profiles** (`--profile fetch-heavy` / `max-pressure`, scripts `-FetchHeavy` / `-MaxPressure`) — see [benchmarks.md — tcp_concurrency_probe workload profiles](benchmarks.md#tcp_concurrency_probe-workload-profiles); extend further if you need hotter shared-topic or CI soak.
 - **Protobuf on the wire** (replacing framed layout with protobuf RPC) — not the same as payload protobuf inside today’s frame body; only if a new protocol version is desired
 - QUIC transport

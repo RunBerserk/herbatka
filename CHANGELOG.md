@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-14
+
+First stable release for the single-node broker scope in [v1.md](docs/status/v1.md). Workspace crates tagged **1.0.0**.
+
 ### Changed
 
 - **TCP server:** production binary uses **Tokio** for TCP bind/accept (`#[tokio::main]`, async [`run`](crates/herbatka/src/tcp/server.rs)), then **`std::thread`** per connection for sync [`handle_client`](crates/herbatka/src/tcp/server.rs) after `into_std()`. Integration tests use blocking [`serve`](crates/herbatka/src/tcp/server.rs). Shared broker state is [`SharedBroker`](crates/herbatka/src/tcp/server.rs) (`Arc<RwLock<Broker>>`): **Fetch** / **TopicBounds** use a read lock; **Produce** / topic creation use a write lock. **Breaking** for embedders: `serve`, `run`, and `handle_client` now take `SharedBroker` instead of `Arc<Mutex<Broker>>`. New integration test `tcp_framed_concurrent_fetch_same_topic` in `tcp_server_smoke`.

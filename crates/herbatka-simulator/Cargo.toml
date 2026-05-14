@@ -1,6 +1,6 @@
 [package]
 name = "herbatka-simulator"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.90"
 description = "Fleet-style load simulator for Herbatka (framed wire v1)."

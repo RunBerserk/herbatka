@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-05-12
+Last updated: 2026-05-14
 
 ## Decision Backlog
 
@@ -62,3 +62,4 @@ Last updated: 2026-05-12
 - After v1 complete:
   - No new v1 features (bug fixes, reliability, docs, and polish only).
   - New capabilities are tracked under `v2 backlog`.
+- **Declared v1.0.0 on 2026-05-14** (annotated tag `v1.0.0`).
