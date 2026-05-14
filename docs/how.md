@@ -60,14 +60,8 @@ Examples:
 
 
 ## Decisions
-Important decisions and their reasoning.
 
-Example:
-I am using LibA instead of LibB, because...
-Advantages:
-    better for usecaseA
-Downside:
-    lack of featureC
+Important decisions and their reasoning. Maintainer-facing tradeoffs and **intentional complexity** are tracked under **[`docs/decisions/`](decisions/README.md)**—see the **[complexity ledger](decisions/complexity-ledger.md)** for a running table (what feels heavy, simpler alternatives, why this way, when to revisit). Update that file when you merge a non-obvious layer or notice docs drifting from code.
 
 ## Workflow
 Typical usage flow.
@@ -80,7 +74,3 @@ Example:
 Technical constraints.
 
 Examples:
-
-
-###
-template generated with nooj
