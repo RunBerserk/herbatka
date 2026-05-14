@@ -23,6 +23,9 @@ History extracted to [done.md](done.md).
 - **v1 concurrency — broker `RwLock` ([`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)):** **`Arc<RwLock<Broker>>`**; fetch / topic bounds use read lock, produce / `create_topic` write lock; integration test **`tcp_framed_concurrent_fetch_same_topic`** in [`tcp_server_smoke.rs`](../../crates/herbatka/tests/tcp_server_smoke.rs). Optional re-baseline: dated **RwLock** subsection in [benchmarks.md](benchmarks.md).
 - **Cut v1 / tag:** [CHANGELOG.md](../../CHANGELOG.md) **1.0.0** (2026-05-14); workspace crates **1.0.0**; annotated tag **`v1.0.0`**.
 
+## In Progress
+Polishing toward v1.0.0 — hardening pass
+
 ## Next Up
 
 **v1 concurrency (optional follow-ups)** — criteria: [benchmarks.md — v1 TCP concurrency acceptance criteria](benchmarks.md#v1-tcp-concurrency-acceptance-criteria); baseline: [benchmarks.md — TCP concurrency baseline measurement](benchmarks.md#tcp-concurrency-baseline-measurement-pre-step-3) (see [Known Gaps / Risks](#known-gaps--risks); wire format unchanged unless you add wire v2 on purpose):
