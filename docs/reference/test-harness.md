@@ -31,6 +31,9 @@ Fail condition:
   - `cargo test -p herbatka --test domain_scenarios`
   - Stock: `demo.market.quotes`; logistics: `demo.logistics.shipments` ([domain_scenarios.rs](../../crates/herbatka/tests/domain_scenarios.rs))
   - Car fleet: in-process protobuf — `cargo test -p herbatka --test fleet_protobuf_roundtrip`
+- Recovery over TCP (framed produce/fetch after broker restart on same `data_dir`):
+  - `cargo test -p herbatka --test recovery_restart_tcp`
+  - Full startup matrix (tail truncate, checkpoint/index fallback): `cargo test -p herbatka --test broker_persistence`
 
 ## Notes
 

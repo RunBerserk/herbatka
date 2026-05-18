@@ -15,7 +15,6 @@ Polishing toward v1.0.0 — hardening pass
 
 ## Next Up
 more hardening pass
-Recovery + restart integration tests — Produce on disk, restart broker, fetch same data; add at least one case for bad tail / checkpoint fallback if not already covered. This is where real brokers hurt when wrong; fleet/stock/logistics do not matter here.
 
 TCP concurrency: measure or explicitly accept — Run tcp_concurrency_probe once against benchmarks acceptance criteria, or write in v1.md / status that current SharedBroker behavior is accepted for this line with a one-line reason. Removes the biggest open “is v1 actually OK?” question.
 

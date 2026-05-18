@@ -62,3 +62,4 @@ History of completed work. New entries land at the bottom; no entries are remove
 - Cut v1 / tag (CHANGELOG 1.0.0, tag `v1.0.0`)
 - Mermaid / SVG refresh (`assets/diagrams/`, `ui-draft` → `.mmd` only)
 - Domain integration tests: stock quotes, logistics shipments (TCP framed v1)
+- Recovery restart over TCP (produce survives restart; corrupt-tail fetch after restart)
