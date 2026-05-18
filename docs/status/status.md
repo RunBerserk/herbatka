@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-05-14
+Last updated: 2026-05-18
 
 ## Current Phase
 
@@ -15,8 +15,6 @@ Polishing toward v1.0.0 — hardening pass
 
 ## Next Up
 more hardening pass
-
-TCP concurrency: measure or explicitly accept — Run tcp_concurrency_probe once against benchmarks acceptance criteria, or write in v1.md / status that current SharedBroker behavior is accepted for this line with a one-line reason. Removes the biggest open “is v1 actually OK?” question.
 
 Full v1 verification on a clean tree — cargo fmt --check, clippy -D warnings, doc with RUSTDOCFLAGS=-D warnings, cargo test (same as v1.md). Cheap gate; catches regressions before you bump version or tag again.
 
@@ -41,7 +39,7 @@ Align version + status narrative (docs only) — One pass: crates 0.7.9, tag/his
 
 ## Known Gaps / Risks
 
-- **Concurrency:** The **`herbatka`** binary uses **Tokio** for TCP **bind/accept** ([`run`](../../crates/herbatka/src/tcp/server.rs)); each accepted socket is handled on a **`std::thread`** running sync **`handle_client`**. The shared [`Broker`](../../crates/herbatka/src/broker/core.rs) is behind **[`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)** (`Arc<RwLock<Broker>>`): **Fetch** / **TopicBounds** can run concurrently (read lock); **Produce** / topic creation still **serialize on the write lock** (global for the process). Integration tests use blocking [`serve`](../../crates/herbatka/src/tcp/server.rs). **Next direction (optional):** broker actor, finer-grained locking, or **async wire** (Phase B).
+- **Concurrency:** The **`herbatka`** binary uses **Tokio** for TCP **bind/accept** ([`run`](../../crates/herbatka/src/tcp/server.rs)); each accepted socket is handled on a **`std::thread`** running sync **`handle_client`**. The shared [`Broker`](../../crates/herbatka/src/broker/core.rs) is behind **[`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)** (`Arc<RwLock<Broker>>`): **Fetch** / **TopicBounds** can run concurrently (read lock); **Produce** / topic creation still **serialize on the write lock** (global for the process). **v1 concurrent TCP bar verified (2026-05-18):** [benchmarks.md — full 8×60 acceptance](benchmarks.md#2026-05-18--full-v1-acceptance-860-default-sharedbroker). **Optional (not a v1 blocker):** broker actor, finer-grained locking, or **async wire** (Phase B).
 
 ## Notes
 

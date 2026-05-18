@@ -34,6 +34,7 @@ Fail condition:
 - Recovery over TCP (framed produce/fetch after broker restart on same `data_dir`):
   - `cargo test -p herbatka --test recovery_restart_tcp`
   - Full startup matrix (tail truncate, checkpoint/index fallback): `cargo test -p herbatka --test broker_persistence`
+- TCP concurrency v1 sign-off (manual, **8 clients × 60 s**, default profile): `powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tcp_concurrency_baseline.ps1 -Release` (or `bash ./scripts/tcp_concurrency_baseline.sh --release`) — see [benchmarks.md — full v1 acceptance](../status/benchmarks.md#2026-05-18--full-v1-acceptance-860-default-sharedbroker)
 
 ## Notes
 

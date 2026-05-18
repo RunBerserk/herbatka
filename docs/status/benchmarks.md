@@ -6,7 +6,7 @@ This document tracks benchmark history for Herbatka.
 
 ## v1 TCP concurrency acceptance criteria
 
-Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker process). A **measured baseline** (pre–concurrent-accept work) is in [TCP concurrency baseline measurement](#tcp-concurrency-baseline-measurement-pre-step-3) below. Remaining implementation work is tracked in [status.md](status.md) **Next Up**. Revise the bar only by explicit decision (update this file and [status.md](status.md)).
+Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker process). A **measured baseline** (pre–concurrent-accept work) is in [TCP concurrency baseline measurement](#tcp-concurrency-baseline-measurement-pre-step-3) below; **full 8×60 sign-off (2026-05-18)** is in [full v1 acceptance (8×60)](#2026-05-18--full-v1-acceptance-860-default-sharedbroker). Optional throughput work is tracked in [status.md](status.md) **Next Up**. Revise the bar only by explicit decision (update this file and [status.md](status.md)).
 
 ### Topology (in scope)
 
@@ -193,6 +193,28 @@ Dated **probe** runs using [`tcp_concurrency_probe`](../../crates/herbatka/src/b
 | Per-worker `total_worker_s` (by `client_id`) | `4.0`, `4.0`, `4.0`, `4.0` s |
 
 **Interpretation:** **`total_wall_s`** differs by **~8 ms** on a **~4 s** wall clock (negligible for one pair of runs). **Watchdog** stayed sub‑**20 ms** in both runs. The short probe is **produce‑heavy**; **`RwLock`** still **serializes writes**, so this harness is **not** expected to show a large gain over **`Mutex`**. For confidence, repeat **several** runs or use a **fetch‑heavy** scenario to exercise read‑lock overlap. Integration coverage: `tcp_framed_concurrent_fetch_same_topic` in [`tcp_server_smoke.rs`](../../crates/herbatka/tests/tcp_server_smoke.rs).
+
+### 2026-05-18 — full v1 acceptance (8×60, default, SharedBroker)
+
+**Scope:** **Release** `herbatka` binary with Tokio [`run`](../../crates/herbatka/src/tcp/server.rs) for accept + **`std::thread`** per client, **[`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)** (`Arc<RwLock<Broker>>`). Matches [v1 TCP concurrency acceptance criteria](#v1-tcp-concurrency-acceptance-criteria): **8** framed clients, **60 s** workload each, **`default`** profile, **9th-client** watchdog. Temp `data_dir`, **`fsync_policy = "never"`** from the baseline script. **Single run; expect noise.**
+
+**Command (Windows):** `powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tcp_concurrency_baseline.ps1 -Release`
+
+**Command (Unix):** `bash ./scripts/tcp_concurrency_baseline.sh --release`
+
+**Pre-flight (same day):** `cargo test -p herbatka --test tcp_server_smoke --test broker_persistence` (and optional `recovery_restart_tcp`, `domain_scenarios`) — all passed.
+
+| Criterion | Result |
+|-----------|--------|
+| `clients` / `duration_per_client_s` | **8** / **60.0** |
+| `profile` | **default** |
+| `probe_summary` `total_wall_s` | **60.544** |
+| `probe_watchdog_ok` `elapsed_ms` | **15.2** (qualitative SLO **&lt; 10 s**: **pass**) |
+| Probe exit code | **0** |
+| Per-worker `workload_s` / `total_worker_s` | **~60.5** s each (ids 0–7) |
+| Per-worker `handshake_ms` | **0.2–0.4** ms (connect **~0.9–1.0** ms) |
+
+**Interpretation:** **`total_wall_s`** tracks one **60 s** overlapping workload window (not serial **N × duration**), consistent with concurrent TCP handlers after the 2026-05-12 transport fix. **Watchdog** at **15.2 ms** is well under the **10 s** bar. Global **produce** still serializes on the write lock; optional throughput follow-ups remain in [status.md](status.md) **Next Up**, not required to claim this bar **verified**.
 
 ## Startup Replay Benchmarks
 
