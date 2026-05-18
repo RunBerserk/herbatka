@@ -8,21 +8,7 @@ Last updated: 2026-05-14
 
 ## Done
 
-History extracted to [done.md](done.md).
-
-- Cargo **workspace**: `herbatka` (broker), `herbatka-simulator`, `herbatka-ui`, shared **`herbatka-wire`** (TCP framing, commands, fleet protobuf). Repo root `Cargo.toml` is workspace-only; sources live under `crates/`.
-- **UI fleet map** recovery when read cursor is past a shorter or reset log: `TopicBounds` on the wire, periodic clamp, **Resync read position**, reset when starting broker from UI (`herbatka-ui`).
-- **UI local data**: clear on-disk `data/logs/<topic>` (default `events`) when embedded broker/sim are stopped; **Quick demo load** runs a fixed short simulator (burst / ramp / 5s / seed 42).
-- wire: lossy UTF-8 display helper + docs
-- **TCP wire v1 closure:** [tcp-wire-protocol.md](../reference/tcp-wire-protocol.md) — implementation notes (framed vs legacy errors), reference clients, minimal framed flow; integration tests — legacy `ERR` paths, CRLF handshake, framed unknown-op recovery, oversize first line / oversize `payload_len`.
-- **v1 definition of done:** [v1.md](v1.md) — single-node scope, verification (CI-aligned), explicit not-in-v1.0 exclusions (clustering / leader / quorum / HA failover), pointers to open decisions.
-- **`Message.timestamp` → `u64` epoch ms:** [roadmap.md](roadmap.md) — domain type aligned with segment encoding; [`now_epoch_millis`](../../crates/herbatka/src/time.rs).
-- **v1 concurrency — (2) measure / reproduce:** Baseline harness + script + dated entry — [benchmarks.md — TCP concurrency baseline measurement](benchmarks.md#tcp-concurrency-baseline-measurement-pre-step-3).
-- **v1 concurrency — minimal concurrent TCP accepts:** [`serve`](../../crates/herbatka/src/tcp/server.rs) (`std::thread::spawn` per accepted connection); integration test `tcp_framed_two_clients_concurrent_produce` in [`tcp_server_smoke.rs`](../../crates/herbatka/tests/tcp_server_smoke.rs).
-- **v1 concurrency — Tokio TCP runtime (Phase A):** broker binary [`#[tokio::main]`](../../crates/herbatka/src/main.rs); production [`run`](../../crates/herbatka/src/tcp/server.rs) uses **`tokio::net::TcpListener`** for async **`accept`**, then **`into_std()`** + **`std::thread`** per connection for sync [`handle_client`](../../crates/herbatka/src/tcp/server.rs) (wire unchanged). Tests keep blocking [`serve`](../../crates/herbatka/src/tcp/server.rs).
-- **v1 concurrency — broker `RwLock` ([`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)):** **`Arc<RwLock<Broker>>`**; fetch / topic bounds use read lock, produce / `create_topic` write lock; integration test **`tcp_framed_concurrent_fetch_same_topic`** in [`tcp_server_smoke.rs`](../../crates/herbatka/tests/tcp_server_smoke.rs). Optional re-baseline: dated **RwLock** subsection in [benchmarks.md](benchmarks.md).
-- **Cut v1 / tag:** [CHANGELOG.md](../../CHANGELOG.md) **1.0.0** (2026-05-14); workspace crates **1.0.0**; annotated tag **`v1.0.0`**.
-- **Mermaid / SVG diagrams (2026-05-14):** Refreshed [assets/diagrams/mmd/](../../assets/diagrams/mmd/) and matching SVGs — [request-flow](../../assets/diagrams/mmd/request-flow.mmd) documents framed wire v1 vs legacy line; [simulator-load-flow](../../assets/diagrams/mmd/simulator-load-flow.mmd) shows framed PRODUCE; [architecture-overview](../../assets/diagrams/mmd/architecture-overview.mmd) TCP caption; [assets/diagrams/README.md](../../assets/diagrams/README.md) lists regenerate commands; [ui-draft.md](../reference/ui-draft.md) defers to `fleet-ui-draft.mmd` only (no duplicate inline diagram).
+History in [done.md](done.md).
 
 ## In Progress
 Polishing toward v1.0.0 — hardening pass

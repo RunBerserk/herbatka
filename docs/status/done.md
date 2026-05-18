@@ -48,3 +48,16 @@ History of completed work. New entries land at the bottom; no entries are remove
 - Larger-scale startup: tail still decodes (safety); selective **trusted** skip of closed segments after a prior decode replay remains off (see `load_topic_state` comments). Optional follow-up: trusted tail skip / fetch-from-segment if history must stay visible without full RAM materialization.
 - Removed startup panic footgun in `load_topic_state`: replaced `expect("trusted segment must have checkpoint entry")` with a structured `BrokerError::Io(InvalidData)` so a violated invariant returns an error instead of crashing the broker on startup.
 - Added [CHANGELOG.md](../../CHANGELOG.md) at repo root ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format) with `[Unreleased]` and the first user-facing fix entry.
+- Cargo workspace (`herbatka`, `herbatka-wire`, `herbatka-ui`, `herbatka-simulator`)
+- UI fleet map: `TopicBounds`, clamp, resync read position
+- UI: clear local log data; Quick demo load
+- Lossy UTF-8 display helper + docs
+- TCP wire v1 closure (spec, reference clients, integration tests)
+- [v1.md](v1.md) definition of done
+- `Message.timestamp` → `u64` epoch ms
+- TCP concurrency baseline harness + benchmarks entry
+- Concurrent TCP accepts (thread per connection)
+- Tokio TCP accept (Phase A); sync `handle_client` per thread
+- `SharedBroker` (`Arc<RwLock<Broker>>`)
+- Cut v1 / tag (CHANGELOG 1.0.0, tag `v1.0.0`)
+- Mermaid / SVG refresh (`assets/diagrams/`, `ui-draft` → `.mmd` only)
