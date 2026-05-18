@@ -61,3 +61,4 @@ History of completed work. New entries land at the bottom; no entries are remove
 - `SharedBroker` (`Arc<RwLock<Broker>>`)
 - Cut v1 / tag (CHANGELOG 1.0.0, tag `v1.0.0`)
 - Mermaid / SVG refresh (`assets/diagrams/`, `ui-draft` → `.mmd` only)
+- Domain integration tests: stock quotes, logistics shipments (TCP framed v1)

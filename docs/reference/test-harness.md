@@ -27,6 +27,10 @@ Fail condition:
   - `cargo test -p herbatka --test tcp_server_smoke`
 - Additional backend confidence:
   - `cargo test -p herbatka --test consumer_flow --test persistence_flow --test broker_persistence`
+- Domain hardening (framed TCP, JSON payloads on dedicated topics):
+  - `cargo test -p herbatka --test domain_scenarios`
+  - Stock: `demo.market.quotes`; logistics: `demo.logistics.shipments` ([domain_scenarios.rs](../../crates/herbatka/tests/domain_scenarios.rs))
+  - Car fleet: in-process protobuf — `cargo test -p herbatka --test fleet_protobuf_roundtrip`
 
 ## Notes
 

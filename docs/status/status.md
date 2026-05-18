@@ -14,6 +14,14 @@ History in [done.md](done.md).
 Polishing toward v1.0.0 — hardening pass
 
 ## Next Up
+more hardening pass
+Recovery + restart integration tests — Produce on disk, restart broker, fetch same data; add at least one case for bad tail / checkpoint fallback if not already covered. This is where real brokers hurt when wrong; fleet/stock/logistics do not matter here.
+
+TCP concurrency: measure or explicitly accept — Run tcp_concurrency_probe once against benchmarks acceptance criteria, or write in v1.md / status that current SharedBroker behavior is accepted for this line with a one-line reason. Removes the biggest open “is v1 actually OK?” question.
+
+Full v1 verification on a clean tree — cargo fmt --check, clippy -D warnings, doc with RUSTDOCFLAGS=-D warnings, cargo test (same as v1.md). Cheap gate; catches regressions before you bump version or tag again.
+
+Align version + status narrative (docs only) — One pass: crates 0.7.9, tag/history, In Progress hardening bullets, what “done” means for the next semver step. Low code, high clarity; stops you and future-you from mixing “shipped 1.0.0” with “still polishing.”
 
 **v1 concurrency (optional follow-ups)** — criteria: [benchmarks.md — v1 TCP concurrency acceptance criteria](benchmarks.md#v1-tcp-concurrency-acceptance-criteria); baseline: [benchmarks.md — TCP concurrency baseline measurement](benchmarks.md#tcp-concurrency-baseline-measurement-pre-step-3) (see [Known Gaps / Risks](#known-gaps--risks); wire format unchanged unless you add wire v2 on purpose):
 
@@ -25,7 +33,7 @@ Polishing toward v1.0.0 — hardening pass
 - **TCP concurrency probe profiles** (`--profile fetch-heavy` / `max-pressure`, scripts `-FetchHeavy` / `-MaxPressure`) — see [benchmarks.md — tcp_concurrency_probe workload profiles](benchmarks.md#tcp_concurrency_probe-workload-profiles); extend further if you need hotter shared-topic or CI soak.
 - **Protobuf on the wire** (replacing framed layout with protobuf RPC) — not the same as payload protobuf inside today’s frame body; only if a new protocol version is desired
 - QUIC transport
-- two additional testscenarios: (1. was carfleet,)  2. stock market, 3. logistics data
+
 - versioning 
 - better ui ux, maybe some information in tabs
 - Bevy UI integration? (in seperated ui project, or cancel)
