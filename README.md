@@ -4,6 +4,8 @@
 
 A lightweight event streaming broker inspired by Apache Kafka, focused on simplicity, resilience, and fast iteration.
 
+**Release line:** workspace crates are **0.7.9** while polishing toward **1.0.0** — see [Project status](docs/status/status.md) for the current phase, hardening history, and how that relates to tag **`v1.0.0`**.
+
 ## Documentation
 
 - [Why](docs/why.md) - purpose and philosophy

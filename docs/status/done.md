@@ -64,3 +64,5 @@ History of completed work. New entries land at the bottom; no entries are remove
 - Domain integration tests: stock quotes, logistics shipments (TCP framed v1)
 - Recovery restart over TCP (produce survives restart; corrupt-tail fetch after restart)
 - TCP concurrency v1 bar measured (8×60 default probe, 2026-05-18)
+- Full v1 verification passed (fmt, clippy, doc, test) — 2026-05-18
+- Version/status narrative aligned (0.7.9 polishing line vs early v1.0.0 tag)

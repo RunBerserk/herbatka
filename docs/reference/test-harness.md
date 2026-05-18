@@ -19,6 +19,19 @@ Fail condition:
 - Non-zero exit code.
 - `ok=0`.
 
+## Full v1 verification (CI-aligned)
+
+From repo root (matches [v1.md](../status/v1.md#verification) and [.github/workflows/ci.yml](../../.github/workflows/ci.yml)):
+
+```bash
+cargo fmt --all --check
+cargo clippy --all-targets -- -D warnings
+RUSTDOCFLAGS=-D warnings cargo doc --no-deps
+cargo test
+```
+
+PowerShell for `doc`: `$env:RUSTDOCFLAGS="-D warnings"; cargo doc --no-deps`
+
 ## Minimal Repeatable Verification Commands
 
 - Simulator unit coverage:

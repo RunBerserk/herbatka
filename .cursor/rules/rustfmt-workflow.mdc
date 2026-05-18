@@ -1,0 +1,24 @@
+---
+description: Run rustfmt before Rust edits; keep fmt-only changes separate from feature work
+alwaysApply: true
+---
+
+# Rustfmt workflow
+
+## Before substantive Rust changes
+
+At the start of a Rust coding task (or before a large edit pass):
+
+1. Run `cargo fmt --all --check` from the repo root.
+2. If it **fails**, run `cargo fmt --all` only — do **not** mix other edits in the same pass.
+3. **Stop** and tell the user: the working tree has **fmt-only** changes; they should review and **commit that alone** in their second IDE (per [git-workflow.mdc](git-workflow.mdc), the agent does **not** commit).
+4. Continue with the requested feature or docs work only after the user confirms the fmt-only commit is done or the tree is clean.
+
+## During work
+
+- After editing Rust files, run `cargo fmt --all` before handing off for review, or ensure `cargo fmt --all --check` passes.
+- Prefer **not** to leave fmt fixes bundled with unrelated logic in one diff when avoidable.
+
+## Verification
+
+Same as CI ([.github/workflows/ci.yml](../../.github/workflows/ci.yml)) and [v1.md — Verification](../../docs/status/v1.md#verification): `cargo fmt --all --check`.

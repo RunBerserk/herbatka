@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Hardening integration tests: domain scenarios (stock / logistics framed TCP), recovery restart over TCP ([`domain_scenarios.rs`](crates/herbatka/tests/domain_scenarios.rs), [`recovery_restart_tcp.rs`](crates/herbatka/tests/recovery_restart_tcp.rs)).
+
+### Changed
+
+- Workspace crates remain **0.7.9** while polishing toward a declared stable **1.0.0**; see [status.md](docs/status/status.md). Git tag **`v1.0.0`** is an earlier cut — not the final polishing line.
+
+### Documentation
+
+- TCP concurrency v1 bar measured (8 clients × 60 s, default profile) — [benchmarks.md](docs/status/benchmarks.md).
+- Mermaid / SVG diagram refresh; [assets/diagrams/README.md](assets/diagrams/README.md).
+
 ## [1.0.0] - 2026-05-14
 
 First stable release for the single-node broker scope in [v1.md](docs/status/v1.md). Workspace crates tagged **1.0.0**.

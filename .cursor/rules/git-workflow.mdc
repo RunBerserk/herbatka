@@ -14,6 +14,7 @@ alwaysApply: true
 ## Staging
 
 - Prefer **not** staging unless the user asked to stage. If you stage to prepare a patch, say so briefly; default is unstaged edits for review.
+- When the only pending diff is from `cargo fmt`, say so explicitly so the user can commit it separately; see [rustfmt-workflow.mdc](rustfmt-workflow.mdc).
 
 ## Where project rules live
 
