@@ -1,6 +1,6 @@
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use herbatka::broker::core::Broker;
 use herbatka::config::load_broker_config;
@@ -21,12 +21,12 @@ async fn main() {
         }
     };
     let bind_addr = broker_config.listen_addr.clone();
-    let mut broker = Broker::with_config(broker_config);
+    let broker = Broker::with_config(broker_config);
     if let Err(e) = broker.discover_topics_on_startup() {
         error!("broker startup discovery failed: {:?}", e);
         return;
     }
-    let broker: SharedBroker = Arc::new(RwLock::new(broker));
+    let broker: SharedBroker = Arc::new(broker);
     if let Err(e) = server::run(bind_addr.as_str(), broker).await {
         if e.kind() == io::ErrorKind::AddrInUse {
             error!(

@@ -58,7 +58,8 @@ History of completed work. New entries land at the bottom; no entries are remove
 - TCP concurrency baseline harness + benchmarks entry
 - Concurrent TCP accepts (thread per connection)
 - Tokio TCP accept (Phase A); sync `handle_client` per thread
-- `SharedBroker` (`Arc<RwLock<Broker>>`)
+- `SharedBroker` (`Arc<RwLock<Broker>>`; superseded 2026-05-26 by `Arc<Broker>` + per-topic locks)
+- Per-topic broker locking (`Arc<Broker>`, `produce_allow_create`, concurrent produce integration test) — 2026-05-26
 - Cut v1 / tag (CHANGELOG 1.0.0, tag `v1.0.0`)
 - Mermaid / SVG refresh (`assets/diagrams/`, `ui-draft` → `.mmd` only)
 - Domain integration tests: stock quotes, logistics shipments (TCP framed v1)

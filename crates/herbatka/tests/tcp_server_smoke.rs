@@ -8,7 +8,7 @@ use herbatka::tcp::server::{SharedBroker, handle_client, serve};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::{Arc, Barrier, RwLock};
+use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -74,7 +74,7 @@ fn msg_payload(trimmed: &str) -> String {
 fn tcp_produce_and_fetch_smoke() {
     //GIVEN
     let dir = tcp_test_dir("smoke");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
 
     let mut client = TcpStream::connect(addr).expect("connect should succeed");
@@ -103,7 +103,7 @@ fn tcp_produce_and_fetch_smoke() {
 #[test]
 fn tcp_legacy_parse_error_returns_err_line() {
     let dir = tcp_test_dir("legacy_parse_err");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
 
     let mut client = TcpStream::connect(addr).expect("connect");
@@ -119,7 +119,7 @@ fn tcp_legacy_parse_error_returns_err_line() {
 #[test]
 fn tcp_legacy_fetch_unknown_topic_returns_err() {
     let dir = tcp_test_dir("legacy_unknown_topic");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
 
     let mut client = TcpStream::connect(addr).expect("connect");
@@ -140,7 +140,7 @@ fn tcp_legacy_fetch_unknown_topic_returns_err() {
 #[test]
 fn tcp_legacy_first_line_over_max_rejected() {
     let dir = tcp_test_dir("oversize_line");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server_returns_client_result(Arc::clone(&broker));
 
     let mut client = TcpStream::connect(addr).expect("connect");
@@ -160,7 +160,7 @@ fn tcp_legacy_first_line_over_max_rejected() {
 fn tcp_produce_multi_then_fetch_drain_in_order() {
     //GIVEN
     let dir = tcp_test_dir("multi_drain");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
 
     let mut client = TcpStream::connect(addr).expect("connect should succeed");
@@ -204,7 +204,7 @@ fn tcp_produce_multi_then_fetch_drain_in_order() {
 #[test]
 fn tcp_framed_handshake_produce_fetch_roundtrip() {
     let dir = tcp_test_dir("framed");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
 
     let mut client = TcpStream::connect(addr).expect("connect");
@@ -254,7 +254,7 @@ fn tcp_framed_handshake_produce_fetch_roundtrip() {
 #[test]
 fn tcp_framed_handshake_cr_lf_accepted() {
     let dir = tcp_test_dir("framed_crlf");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
 
     let mut client = TcpStream::connect(addr).expect("connect");
@@ -286,7 +286,7 @@ fn tcp_framed_handshake_cr_lf_accepted() {
 #[test]
 fn tcp_framed_unknown_op_then_recover() {
     let dir = tcp_test_dir("framed_bad_op");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
 
     let mut client = TcpStream::connect(addr).expect("connect");
@@ -327,7 +327,7 @@ fn tcp_framed_unknown_op_then_recover() {
 #[test]
 fn tcp_framed_oversized_declared_payload_returns_error_frame() {
     let dir = tcp_test_dir("framed_oversize_hdr");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
 
     let mut client = TcpStream::connect(addr).expect("connect");
@@ -364,7 +364,7 @@ fn tcp_framed_oversized_declared_payload_returns_error_frame() {
 #[test]
 fn tcp_framed_topic_bounds_roundtrip() {
     let dir = tcp_test_dir("topic_bounds");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
 
     let mut client = TcpStream::connect(addr).expect("connect");
@@ -408,7 +408,7 @@ fn tcp_framed_topic_bounds_roundtrip() {
 #[test]
 fn tcp_framed_two_clients_concurrent_produce() {
     let dir = tcp_test_dir("concurrent_two");
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().expect("local addr");
     let broker_srv = Arc::clone(&broker);
@@ -460,7 +460,7 @@ fn tcp_framed_two_clients_concurrent_produce() {
 #[test]
 fn tcp_framed_concurrent_fetch_same_topic() {
     let dir = tcp_test_dir("concurrent_fetch");
-    let mut inner = Broker::with_data_dir(dir);
+    let inner = Broker::with_data_dir(dir);
     let topic = "cf-topic";
     inner.create_topic(topic.to_string()).expect("create topic");
     let msg = herbatka::log::message::Message {
@@ -470,7 +470,7 @@ fn tcp_framed_concurrent_fetch_same_topic() {
         headers: std::collections::HashMap::new(),
     };
     inner.produce(topic, msg).expect("seed produce");
-    let broker: SharedBroker = Arc::new(RwLock::new(inner));
+    let broker: SharedBroker = Arc::new(inner);
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().expect("local addr");
@@ -522,5 +522,59 @@ fn tcp_framed_concurrent_fetch_same_topic() {
     barrier.wait();
     for h in handles {
         h.join().expect("reader thread join");
+    }
+}
+
+#[test]
+fn tcp_framed_concurrent_produce_different_topics() {
+    const CLIENTS: usize = 8;
+    let dir = tcp_test_dir("concurrent_produce_topics");
+    let broker = Arc::new(Broker::with_data_dir(dir));
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    let broker_srv = Arc::clone(&broker);
+    let _server_thread = thread::spawn(move || {
+        let _ = serve(listener, broker_srv);
+    });
+
+    let barrier = Arc::new(Barrier::new(CLIENTS + 1));
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut handles = vec![];
+    for id in 0..CLIENTS {
+        let barrier = Arc::clone(&barrier);
+        handles.push(thread::spawn(move || {
+            let topic = format!("cc-topic-{id}");
+            let mut stream = TcpStream::connect(addr).expect("connect");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            stream
+                .write_all(HANDSHAKE_CLIENT_V1)
+                .expect("handshake write");
+            stream.flush().expect("flush handshake");
+            let mut ack = String::new();
+            reader.read_line(&mut ack).expect("ack read");
+            assert_eq!(
+                ack.trim_end_matches(['\r', '\n']),
+                "HERBATKA OK/1",
+                "unexpected ack: {ack:?}"
+            );
+            barrier.wait();
+            let body = format!("payload-{id}");
+            let p_frame = encode_produce(&topic, body.as_bytes()).expect("encode produce");
+            stream.write_all(&p_frame).expect("produce");
+            stream.flush().expect("flush produce");
+            let r = read_frame(&mut reader).expect("produce response");
+            assert_eq!(
+                decode_response_frame(&r).expect("decode"),
+                Response::OkOffset(0)
+            );
+            assert!(
+                Instant::now() < deadline,
+                "concurrent produce exceeded deadline"
+            );
+        }));
+    }
+    barrier.wait();
+    for h in handles {
+        h.join().expect("client thread join");
     }
 }

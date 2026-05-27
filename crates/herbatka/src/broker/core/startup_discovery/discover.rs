@@ -5,6 +5,8 @@
 //! (**post_replay_skip_disabled**). When a trusted skip is chosen, FETCH still resolves historical offsets
 //! by reading segment files plus sparse-index anchors.
 
+use std::sync::{Arc, RwLock};
+
 use crate::broker::core::{Broker, BrokerError, TopicState};
 
 use super::segment_scan;
@@ -17,16 +19,20 @@ pub(in crate::broker::core) fn load_topic_state(
 }
 
 pub(in crate::broker::core) fn discover_topics_on_startup(
-    broker: &mut Broker,
+    broker: &Broker,
 ) -> Result<(), BrokerError> {
     let topics = segment_scan::enumerate_topic_directories(broker)?;
 
     for topic in topics {
-        if broker.topics.contains_key(&topic) {
+        if broker.get_topic_arc(&topic).is_ok() {
             continue;
         }
         let state = load_topic_state(broker, &topic)?;
-        broker.topics.insert(topic, state);
+        let mut map = broker.topics_write()?;
+        if map.contains_key(&topic) {
+            continue;
+        }
+        map.insert(topic, Arc::new(RwLock::new(state)));
     }
     Ok(())
 }
@@ -73,15 +79,14 @@ mod tests {
 
     #[test]
     fn startup_discovery_ignores_non_log_files() {
-        let mut broker = isolated_broker();
+        let broker = isolated_broker();
         broker.create_topic("events".into()).unwrap();
         broker.produce("events", msg(b"hello")).unwrap();
         let non_log_file = broker.config.data_dir.join("notes.txt");
         let mut file = File::create(non_log_file).unwrap();
         file.write_all(b"ignore me").unwrap();
 
-        let mut restarted =
-            crate::broker::core::Broker::with_data_dir(broker.config.data_dir.clone());
+        let restarted = crate::broker::core::Broker::with_data_dir(broker.config.data_dir.clone());
         restarted.discover_topics_on_startup().unwrap();
 
         let recovered = restarted.fetch("events", 0).unwrap().unwrap();

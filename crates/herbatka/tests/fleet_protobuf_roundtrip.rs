@@ -33,7 +33,7 @@ fn fleet_telemetry_protobuf_roundtrips_via_broker() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg);
+    let broker = Broker::with_config(cfg);
     broker.create_topic("demo.scope.telemetry".into()).unwrap();
 
     let original = FleetTelemetryEvent {

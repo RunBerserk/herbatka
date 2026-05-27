@@ -17,7 +17,7 @@ Canonical bar for **feature-complete v1.0** concurrent TCP use (single broker pr
 
 - **Minimum `N = 8`** simultaneous **framed v1** TCP connections after `HERBATKA WIRE/1` handshake ([tcp-wire-protocol.md](../reference/tcp-wire-protocol.md)).
 - Each connection keeps the socket open and performs the workload below for at least **60 s** (not connect-disconnect-only).
-- **Two dimensions** for the full soak harness: (a) **overlapping framed connection lifetimes** (several clients doing produce/fetch at the same wall time — production binary: Tokio [`run`](../../crates/herbatka/src/tcp/server.rs) for accept + **`std::thread`** per client; tests: [`serve`](../../crates/herbatka/src/tcp/server.rs) with OS threads per `accept`); (b) **[`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)** (`Arc<RwLock<Broker>>`) **contention** under concurrent produce/fetch (read lock for fetch/topic bounds; exclusive write lock for produce / topic creation — overlapping **writes** remain serialized).
+- **Two dimensions** for the full soak harness: (a) **overlapping framed connection lifetimes** (several clients doing produce/fetch at the same wall time — production binary: Tokio [`run`](../../crates/herbatka/src/tcp/server.rs) for accept + **`std::thread`** per client; tests: [`serve`](../../crates/herbatka/src/tcp/server.rs) with OS threads per `accept`); (b) **[`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)** (`Arc<Broker>`) **contention** — per-topic `RwLock`s (since 2026-05-26): overlapping **produce** on **different** topics can proceed in parallel; **same-topic** produce still serializes. The default v1 workload uses **one topic per client**, so this change targets that pattern.
 
 ### Wire mode
 
@@ -214,7 +214,26 @@ Dated **probe** runs using [`tcp_concurrency_probe`](../../crates/herbatka/src/b
 | Per-worker `workload_s` / `total_worker_s` | **~60.5** s each (ids 0–7) |
 | Per-worker `handshake_ms` | **0.2–0.4** ms (connect **~0.9–1.0** ms) |
 
-**Interpretation:** **`total_wall_s`** tracks one **60 s** overlapping workload window (not serial **N × duration**), consistent with concurrent TCP handlers after the 2026-05-12 transport fix. **Watchdog** at **15.2 ms** is well under the **10 s** bar. Global **produce** still serializes on the write lock; optional throughput follow-ups remain in [status.md](status.md) **Next Up**, not required to claim this bar **verified**.
+**Interpretation:** **`total_wall_s`** tracks one **60 s** overlapping workload window (not serial **N × duration**), consistent with concurrent TCP handlers after the 2026-05-12 transport fix. **Watchdog** at **15.2 ms** is well under the **10 s** bar. At this capture the broker still used a **global** write lock for produce; optional throughput follow-ups were tracked in [status.md](status.md) **Next Up** until per-topic locking landed (2026-05-26).
+
+### 2026-05-26 — full v1 re-check after per-topic locking (8×60, default)
+
+**Scope:** **Release** `herbatka` with Tokio [`run`](../../crates/herbatka/src/tcp/server.rs) + **`std::thread`** per client, **[`SharedBroker`](../../crates/herbatka/src/tcp/server.rs)** (`Arc<Broker>` with per-topic locks). Same bar as [full v1 acceptance (8×60)](#2026-05-18--full-v1-acceptance-860-default-sharedbroker): **8** clients, **60 s** each, **`default`** profile, watchdog. Temp `data_dir`, **`fsync_policy = "never"`**. **Single run; expect noise.**
+
+**Command (Windows):** `powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/tcp_concurrency_baseline.ps1 -Release`
+
+**Pre-flight:** `cargo test -p herbatka` — all passed (including `tcp_framed_concurrent_produce_different_topics`).
+
+| Criterion | Result |
+|-----------|--------|
+| `clients` / `duration_per_client_s` | **8** / **60.0** |
+| `profile` | **default** |
+| `probe_summary` `total_wall_s` | **60.554** |
+| `probe_watchdog_ok` `elapsed_ms` | **3.9** (SLO **&lt; 10 s**: **pass**) |
+| Probe exit code | **0** |
+| Per-worker `workload_s` | **~60.5–60.6** s each (ids 0–7) |
+
+**Interpretation:** No regression vs the 2026-05-18 sign-off; watchdog remained sub‑**20 ms**. Cross-topic produce parallelism is not strongly visible on the **default** profile (per-client topics, produce-heavy); shared-topic or fetch-heavy probes are optional for hotter lock stress — see [status.md — Later](status.md).
 
 ## Startup Replay Benchmarks
 

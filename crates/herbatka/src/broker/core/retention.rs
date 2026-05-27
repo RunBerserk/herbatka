@@ -5,32 +5,32 @@
 
 use std::fs::remove_file;
 
-use super::{Broker, BrokerError};
+use super::{BrokerError, TopicState};
 use crate::broker::index;
+use crate::config::BrokerConfig;
 
-impl Broker {
-    pub(super) fn enforce_retention(&mut self, topic: &str) -> Result<bool, BrokerError> {
-        let Some(max_topic_bytes) = self.config.topic_retention_byte_limit(topic) else {
-            return Ok(false);
-        };
-        let Some(state) = self.topics.get_mut(topic) else {
-            return Ok(false);
-        };
+pub(super) fn enforce_retention_on_state(
+    config: &BrokerConfig,
+    topic: &str,
+    state: &mut TopicState,
+) -> Result<bool, BrokerError> {
+    let Some(max_topic_bytes) = config.topic_retention_byte_limit(topic) else {
+        return Ok(false);
+    };
 
-        let mut changed = false;
-        while state.segments.len() > 1 {
-            let total: u64 = state.segments.iter().map(|s| s.size_bytes).sum();
-            if total <= max_topic_bytes {
-                break;
-            }
-            let evicted = state.segments.remove(0);
-            remove_file(&evicted.path).map_err(BrokerError::Io)?;
-            index::remove_sidecar_for_segment(&evicted.path).map_err(BrokerError::Io)?;
-            state.log.drop_prefix(evicted.message_count as usize);
-            changed = true;
+    let mut changed = false;
+    while state.segments.len() > 1 {
+        let total: u64 = state.segments.iter().map(|s| s.size_bytes).sum();
+        if total <= max_topic_bytes {
+            break;
         }
-        Ok(changed)
+        let evicted = state.segments.remove(0);
+        remove_file(&evicted.path).map_err(BrokerError::Io)?;
+        index::remove_sidecar_for_segment(&evicted.path).map_err(BrokerError::Io)?;
+        state.log.drop_prefix(evicted.message_count as usize);
+        changed = true;
     }
+    Ok(changed)
 }
 
 #[cfg(test)]
@@ -70,7 +70,7 @@ mod tests {
             fsync_policy: FsyncPolicy::Never,
             ..BrokerConfig::default()
         };
-        let mut broker = Broker::with_config(cfg);
+        let broker = Broker::with_config(cfg);
         broker.create_topic("events".into()).unwrap();
         let large_payload = vec![b'x'; 64];
         broker.produce("events", msg(&large_payload)).unwrap();

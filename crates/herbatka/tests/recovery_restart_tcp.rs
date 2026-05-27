@@ -16,7 +16,7 @@ use std::fs::{OpenOptions, create_dir_all, read_dir};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -107,11 +107,11 @@ fn framed_fetch_all(addr: SocketAddr, topic: &str, expected_payloads: &[&[u8]]) 
 }
 
 fn restart_broker(dir: PathBuf) -> SharedBroker {
-    let mut broker = Broker::with_data_dir(dir);
+    let broker = Broker::with_data_dir(dir);
     broker
         .discover_topics_on_startup()
         .expect("startup discovery should succeed");
-    Arc::new(RwLock::new(broker))
+    Arc::new(broker)
 }
 
 fn message(payload: &[u8]) -> Message {
@@ -140,7 +140,7 @@ fn tcp_framed_produce_survives_broker_restart() {
     let payloads: &[&[u8]] = &[b"alpha", b"beta"];
     let topic = "recovery.t";
 
-    let broker_a = Arc::new(RwLock::new(Broker::with_data_dir(dir.clone())));
+    let broker_a = Arc::new(Broker::with_data_dir(dir.clone()));
     let (server_a, addr_a) = spawn_test_server(Arc::clone(&broker_a));
     framed_produce_all(addr_a, topic, payloads);
     drop(broker_a);
@@ -158,7 +158,7 @@ fn tcp_framed_fetch_after_tail_truncation_on_restart() {
     let dir = tcp_test_dir("restart_tail");
     let topic = "recovery.events";
 
-    let mut broker = Broker::with_data_dir(dir.clone());
+    let broker = Broker::with_data_dir(dir.clone());
     broker.create_topic(topic.into()).expect("create topic");
     broker
         .produce(topic, message(b"ok-1"))

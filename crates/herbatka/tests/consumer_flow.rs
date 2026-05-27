@@ -30,7 +30,7 @@ fn consumer_drains_topic_in_order() {
             .as_nanos()
     ));
     create_dir_all(&dir).unwrap();
-    let mut broker = Broker::with_data_dir(dir);
+    let broker = Broker::with_data_dir(dir);
     broker.create_topic("events".into()).unwrap();
 
     broker.produce("events", message(b"m1")).unwrap();

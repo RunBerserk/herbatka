@@ -66,13 +66,13 @@ fn topic_index_files(dir: &std::path::Path, topic: &str) -> Vec<PathBuf> {
 fn produce_survives_broker_restart() {
     let dir = temp_data_dir("herbatka_persist");
 
-    let mut broker = Broker::with_data_dir(dir.clone());
+    let broker = Broker::with_data_dir(dir.clone());
     broker.create_topic("t".into()).unwrap();
 
     broker.produce("t", message(b"first")).unwrap();
     broker.produce("t", message(b"second")).unwrap();
 
-    let mut restarted = Broker::with_data_dir(dir);
+    let restarted = Broker::with_data_dir(dir);
     restarted.discover_topics_on_startup().unwrap();
 
     assert_eq!(
@@ -93,13 +93,13 @@ fn produce_survives_broker_restart() {
 #[test]
 fn startup_discovery_loads_multiple_topics() {
     let dir = temp_data_dir("herbatka_persist_multi");
-    let mut broker = Broker::with_data_dir(dir.clone());
+    let broker = Broker::with_data_dir(dir.clone());
     broker.create_topic("a".into()).unwrap();
     broker.create_topic("b".into()).unwrap();
     broker.produce("a", message(b"one")).unwrap();
     broker.produce("b", message(b"two")).unwrap();
 
-    let mut restarted = Broker::with_data_dir(dir);
+    let restarted = Broker::with_data_dir(dir);
     restarted.discover_topics_on_startup().unwrap();
 
     assert_eq!(restarted.fetch("a", 0).unwrap().unwrap().payload, b"one");
@@ -109,14 +109,14 @@ fn startup_discovery_loads_multiple_topics() {
 #[test]
 fn startup_discovery_ignores_non_log_files() {
     let dir = temp_data_dir("herbatka_persist_ignore");
-    let mut broker = Broker::with_data_dir(dir.clone());
+    let broker = Broker::with_data_dir(dir.clone());
     broker.create_topic("events".into()).unwrap();
     broker.produce("events", message(b"hello")).unwrap();
 
     let mut random_file = File::create(dir.join("notes.txt")).unwrap();
     random_file.write_all(b"not a topic log").unwrap();
 
-    let mut restarted = Broker::with_data_dir(dir);
+    let restarted = Broker::with_data_dir(dir);
     restarted.discover_topics_on_startup().unwrap();
 
     assert_eq!(
@@ -139,7 +139,7 @@ fn startup_discovery_is_noop_for_missing_data_dir() {
             .unwrap()
             .as_nanos()
     ));
-    let mut broker = Broker::with_data_dir(dir);
+    let broker = Broker::with_data_dir(dir);
     broker.discover_topics_on_startup().unwrap();
 }
 
@@ -153,14 +153,14 @@ fn restart_replays_multiple_segments_in_order() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'z'; 64];
     broker.produce("events", message(&big)).unwrap();
     broker.produce("events", message(&big)).unwrap();
     broker.produce("events", message(&big)).unwrap();
 
-    let mut restarted = Broker::with_config(cfg);
+    let restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
     // Trusted closed segments may be metadata-skipped on startup, but FETCH still reads from disk.
     assert_eq!(restarted.fetch("events", 0).unwrap().unwrap().payload, big);
@@ -178,7 +178,7 @@ fn segment_rollover_creates_multiple_files() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg);
+    let broker = Broker::with_config(cfg);
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'a'; 64];
     broker.produce("events", message(&big)).unwrap();
@@ -200,7 +200,7 @@ fn retention_evicts_old_offsets_when_max_topic_bytes_is_set() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg);
+    let broker = Broker::with_config(cfg);
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'b'; 64];
     broker.produce("events", message(&big)).unwrap();
@@ -222,7 +222,7 @@ fn per_topic_retention_only_applies_to_listed_topics() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg);
+    let broker = Broker::with_config(cfg);
     broker.create_topic("a".into()).unwrap();
     broker.create_topic("b".into()).unwrap();
     let big = vec![b'b'; 64];
@@ -244,7 +244,7 @@ fn per_topic_retention_only_applies_to_listed_topics() {
 #[test]
 fn startup_truncates_partial_tail_and_recovers() {
     let dir = temp_data_dir("herbatka_tail_truncate");
-    let mut broker = Broker::with_data_dir(dir.clone());
+    let broker = Broker::with_data_dir(dir.clone());
     broker.create_topic("events".into()).unwrap();
     broker.produce("events", message(b"ok-1")).unwrap();
     broker.produce("events", message(b"ok-2")).unwrap();
@@ -266,7 +266,7 @@ fn startup_truncates_partial_tail_and_recovers() {
     let corrupted_len = std::fs::metadata(&segment_path).unwrap().len();
     assert!(corrupted_len > clean_len);
 
-    let mut restarted = Broker::with_data_dir(dir);
+    let restarted = Broker::with_data_dir(dir);
     restarted.discover_topics_on_startup().unwrap();
 
     assert_eq!(
@@ -286,7 +286,7 @@ fn startup_truncates_partial_tail_and_recovers() {
 #[test]
 fn startup_keeps_failing_on_invalid_data_tail() {
     let dir = temp_data_dir("herbatka_tail_invalid");
-    let mut broker = Broker::with_data_dir(dir.clone());
+    let broker = Broker::with_data_dir(dir.clone());
     broker.create_topic("events".into()).unwrap();
     broker.produce("events", message(b"ok-1")).unwrap();
 
@@ -312,7 +312,7 @@ fn startup_keeps_failing_on_invalid_data_tail() {
         .expect("invalid frame write should succeed");
     drop(file);
 
-    let mut restarted = Broker::with_data_dir(dir);
+    let restarted = Broker::with_data_dir(dir);
     match restarted.discover_topics_on_startup() {
         Err(BrokerError::Io(e)) => {
             assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
@@ -324,7 +324,7 @@ fn startup_keeps_failing_on_invalid_data_tail() {
 #[test]
 fn startup_clean_segment_no_truncation() {
     let dir = temp_data_dir("herbatka_tail_clean");
-    let mut broker = Broker::with_data_dir(dir.clone());
+    let broker = Broker::with_data_dir(dir.clone());
     broker.create_topic("events".into()).unwrap();
     broker.produce("events", message(b"ok-1")).unwrap();
     broker.produce("events", message(b"ok-2")).unwrap();
@@ -333,7 +333,7 @@ fn startup_clean_segment_no_truncation() {
     let segment_path = segments.last().expect("segment should exist").clone();
     let before = std::fs::metadata(&segment_path).unwrap().len();
 
-    let mut restarted = Broker::with_data_dir(dir);
+    let restarted = Broker::with_data_dir(dir);
     restarted.discover_topics_on_startup().unwrap();
 
     let after = std::fs::metadata(&segment_path).unwrap().len();
@@ -358,7 +358,7 @@ fn checkpoint_file_is_written_and_restart_still_recovers() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'c'; 64];
     broker.produce("events", message(&big)).unwrap();
@@ -370,7 +370,7 @@ fn checkpoint_file_is_written_and_restart_still_recovers() {
         std::fs::read_to_string(&checkpoint_path).expect("checkpoint should exist");
     assert!(checkpoint_raw.starts_with("v1\n"));
 
-    let mut restarted = Broker::with_config(cfg);
+    let restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
     assert_eq!(restarted.fetch("events", 0).unwrap().unwrap().payload, big);
     assert_eq!(restarted.fetch("events", 1).unwrap().unwrap().payload, big);
@@ -387,7 +387,7 @@ fn stale_or_invalid_checkpoint_falls_back_to_safe_replay() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'd'; 64];
     broker.produce("events", message(&big)).unwrap();
@@ -398,14 +398,14 @@ fn stale_or_invalid_checkpoint_falls_back_to_safe_replay() {
     let stale = "v1\n0,1,999999\n";
     std::fs::write(&checkpoint_path, stale).expect("write stale checkpoint");
 
-    let mut restarted = Broker::with_config(cfg.clone());
+    let restarted = Broker::with_config(cfg.clone());
     restarted.discover_topics_on_startup().unwrap();
     assert!(restarted.fetch("events", 0).unwrap().is_some());
     assert!(restarted.fetch("events", 1).unwrap().is_some());
     assert!(restarted.fetch("events", 2).unwrap().is_some());
 
     std::fs::write(&checkpoint_path, "not-a-valid-checkpoint").expect("write invalid checkpoint");
-    let mut restarted_again = Broker::with_config(cfg);
+    let restarted_again = Broker::with_config(cfg);
     restarted_again.discover_topics_on_startup().unwrap();
     assert!(restarted_again.fetch("events", 0).unwrap().is_some());
     assert!(restarted_again.fetch("events", 1).unwrap().is_some());
@@ -422,7 +422,7 @@ fn sparse_index_sidecar_is_created() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg);
+    let broker = Broker::with_config(cfg);
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'e'; 64];
     broker.produce("events", message(&big)).unwrap();
@@ -443,14 +443,14 @@ fn startup_skips_all_eligible_closed_segments() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'h'; 64];
     for _ in 0..5 {
         broker.produce("events", message(&big)).unwrap();
     }
 
-    let mut restarted = Broker::with_config(cfg);
+    let restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
     for i in 0..5 {
         assert_eq!(
@@ -474,7 +474,7 @@ fn startup_mixed_skip_and_fallback_keeps_replayed_offsets_visible() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'i'; 64];
     for _ in 0..4 {
@@ -489,7 +489,7 @@ fn startup_mixed_skip_and_fallback_keeps_replayed_offsets_visible() {
         .clone();
     std::fs::write(second_segment_index, "corrupt-index").expect("write corrupt index");
 
-    let mut restarted = Broker::with_config(cfg);
+    let restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
     assert_eq!(restarted.fetch("events", 0).unwrap().unwrap().payload, big,);
     assert_eq!(restarted.fetch("events", 1).unwrap().unwrap().payload, big,);
@@ -507,7 +507,7 @@ fn startup_tail_recovery_still_truncates_when_closed_segments_are_skipped() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'j'; 64];
     broker.produce("events", message(&big)).unwrap();
@@ -529,7 +529,7 @@ fn startup_tail_recovery_still_truncates_when_closed_segments_are_skipped() {
         .expect("partial tail write should succeed");
     drop(file);
 
-    let mut restarted = Broker::with_config(cfg);
+    let restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
 
     assert_eq!(restarted.fetch("events", 0).unwrap().unwrap().payload, big);
@@ -554,7 +554,7 @@ fn startup_tail_partial_replay_uses_index_hint_and_preserves_offsets() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     for i in 0..130 {
         let payload = format!("msg-{i}");
@@ -571,7 +571,7 @@ fn startup_tail_partial_replay_uses_index_hint_and_preserves_offsets() {
     std::fs::write(&checkpoint_path, format!("v1\n0,130,{valid_len}\n"))
         .expect("write checkpoint should succeed");
 
-    let mut restarted = Broker::with_config(cfg);
+    let restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
 
     // With index-assisted tail replay, earlier offsets may be skipped in-memory,
@@ -616,7 +616,7 @@ fn startup_tail_partial_replay_falls_back_when_checkpoint_missing() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     for i in 0..130 {
         let payload = format!("msg-{i}");
@@ -627,7 +627,7 @@ fn startup_tail_partial_replay_falls_back_when_checkpoint_missing() {
     let checkpoint_path = topic_checkpoint_path(&dir, "events");
     std::fs::remove_file(&checkpoint_path).expect("remove checkpoint should succeed");
 
-    let mut restarted = Broker::with_config(cfg);
+    let restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
 
     // Missing checkpoint should force full tail replay fallback.
@@ -651,7 +651,7 @@ fn startup_tail_partial_replay_keeps_corruption_truncation_safety() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     for i in 0..130 {
         let payload = format!("msg-{i}");
@@ -673,7 +673,7 @@ fn startup_tail_partial_replay_keeps_corruption_truncation_safety() {
         .expect("partial tail write should succeed");
     drop(file);
 
-    let mut restarted = Broker::with_config(cfg);
+    let restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
 
     let recovered_len = std::fs::metadata(&tail_segment).unwrap().len();
@@ -698,7 +698,7 @@ fn startup_closed_must_replay_uses_sparse_seek_after_early_barrier() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     for i in 0..260 {
         let payload = format!("msg-{i:04}");
@@ -724,7 +724,7 @@ fn startup_closed_must_replay_uses_sparse_seek_after_early_barrier() {
     )
     .unwrap();
 
-    let mut restarted = Broker::with_config(cfg);
+    let restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
 
     assert_eq!(
@@ -743,7 +743,7 @@ fn corrupt_or_missing_sparse_index_falls_back_safely() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'f'; 64];
     broker.produce("events", message(&big)).unwrap();
@@ -754,7 +754,7 @@ fn corrupt_or_missing_sparse_index_falls_back_safely() {
     let first_index = index_files.first().expect("expected index file").clone();
     std::fs::write(&first_index, "invalid-index").expect("write corrupt index");
 
-    let mut restarted = Broker::with_config(cfg.clone());
+    let restarted = Broker::with_config(cfg.clone());
     restarted.discover_topics_on_startup().unwrap();
     assert!(restarted.fetch("events", 0).unwrap().is_some());
     assert!(restarted.fetch("events", 1).unwrap().is_some());
@@ -767,7 +767,7 @@ fn corrupt_or_missing_sparse_index_falls_back_safely() {
         .clone();
     std::fs::remove_file(&first_index_after_restart).expect("remove index sidecar");
 
-    let mut restarted_again = Broker::with_config(cfg);
+    let restarted_again = Broker::with_config(cfg);
     restarted_again.discover_topics_on_startup().unwrap();
     assert!(restarted_again.fetch("events", 0).unwrap().is_some());
     assert!(restarted_again.fetch("events", 1).unwrap().is_some());
@@ -784,7 +784,7 @@ fn retention_removes_index_sidecars_with_segments() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg);
+    let broker = Broker::with_config(cfg);
     broker.create_topic("events".into()).unwrap();
     let big = vec![b'g'; 64];
     broker.produce("events", message(&big)).unwrap();
@@ -803,10 +803,10 @@ fn retention_removes_index_sidecars_with_segments() {
 #[test]
 fn startup_tail_trusted_skip_keeps_single_segment_topic_fetchable() {
     let dir = temp_data_dir("herbatka_tail_trusted_single");
-    let mut broker = Broker::with_data_dir(dir.clone());
+    let broker = Broker::with_data_dir(dir.clone());
     broker.create_topic("events".into()).unwrap();
     broker.produce("events", message(b"only")).unwrap();
-    let mut restarted = Broker::with_data_dir(dir);
+    let restarted = Broker::with_data_dir(dir);
     restarted.discover_topics_on_startup().unwrap();
     assert_eq!(
         restarted.fetch("events", 0).unwrap().unwrap().payload,
@@ -824,7 +824,7 @@ fn startup_large_dataset_restart_profile() {
         fsync_policy: FsyncPolicy::Never,
         ..BrokerConfig::default()
     };
-    let mut broker = Broker::with_config(cfg.clone());
+    let broker = Broker::with_config(cfg.clone());
     broker.create_topic("events".into()).unwrap();
 
     let message_count = 80_000u64;
@@ -841,7 +841,7 @@ fn startup_large_dataset_restart_profile() {
     );
 
     let restart_start = Instant::now();
-    let mut restarted = Broker::with_config(cfg);
+    let restarted = Broker::with_config(cfg);
     restarted.discover_topics_on_startup().unwrap();
     let restart_elapsed = restart_start.elapsed();
     eprintln!(

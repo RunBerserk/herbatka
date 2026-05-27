@@ -58,11 +58,12 @@ impl Broker {
         }
     }
 
-    pub(super) fn persist_topic_checkpoint(&self, topic: &str) -> io::Result<()> {
+    pub(super) fn persist_topic_checkpoint(
+        &self,
+        topic: &str,
+        state: &super::TopicState,
+    ) -> io::Result<()> {
         let path = self.topic_checkpoint_path(topic);
-        let Some(state) = self.topics.get(topic) else {
-            return Ok(());
-        };
         if state.segments.is_empty() {
             match std::fs::remove_file(&path) {
                 Ok(_) => {}

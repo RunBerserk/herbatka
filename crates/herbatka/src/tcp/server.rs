@@ -17,13 +17,13 @@ use herbatka_wire::tcp::frame::{
 use herbatka_wire::tcp::protocol::{Request, Response, format_response, parse_request};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::thread;
 use tokio::net::TcpListener as TokioTcpListener;
 use tracing::{debug, error, info, warn};
 
-/// Shared broker handle: fetch and topic-bounds use a **read** lock; produce and topic creation use a **write** lock.
-pub type SharedBroker = Arc<RwLock<Broker>>;
+/// Shared broker handle: per-topic locks inside [`Broker`] allow concurrent produce/fetch on different topics.
+pub type SharedBroker = Arc<Broker>;
 
 /// Accept connections on `listener` and handle each client on a dedicated thread.
 /// Shared broker state is guarded by [`SharedBroker`] inside [`handle_client`].
@@ -208,12 +208,7 @@ fn dispatch_request(request: Request, broker: &SharedBroker) -> Response {
 }
 
 fn handle_topic_bounds(topic: &str, broker: &SharedBroker) -> Response {
-    let broker_guard = match broker.read() {
-        Ok(guard) => guard,
-        Err(_) => return Response::Error("internal lock error".to_string()),
-    };
-
-    match broker_guard.topic_offset_range(topic) {
+    match broker.topic_offset_range(topic) {
         Ok((min_offset, exclusive_end)) => Response::TopicBounds {
             min_offset,
             exclusive_end,
@@ -223,33 +218,14 @@ fn handle_topic_bounds(topic: &str, broker: &SharedBroker) -> Response {
 }
 
 fn handle_produce(topic: &str, payload: &[u8], broker: &SharedBroker) -> Response {
-    let mut broker_guard = match broker.write() {
-        Ok(guard) => guard,
-        Err(_) => return Response::Error("internal lock error".to_string()),
-    };
-
-    match broker_guard.produce(topic, build_message(payload)) {
+    match broker.produce_allow_create(topic, build_message(payload)) {
         Ok(offset) => Response::OkOffset(offset),
-        Err(BrokerError::UnknownTopic) => {
-            if let Err(e) = broker_guard.create_topic(topic.to_string()) {
-                return map_broker_error(e);
-            }
-            match broker_guard.produce(topic, build_message(payload)) {
-                Ok(offset) => Response::OkOffset(offset),
-                Err(e) => map_broker_error(e),
-            }
-        }
         Err(e) => map_broker_error(e),
     }
 }
 
 fn handle_fetch(topic: &str, offset: u64, broker: &SharedBroker) -> Response {
-    let broker_guard = match broker.read() {
-        Ok(guard) => guard,
-        Err(_) => return Response::Error("internal lock error".to_string()),
-    };
-
-    match broker_guard.fetch(topic, offset) {
+    match broker.fetch(topic, offset) {
         Ok(Some(message)) => Response::Message {
             offset,
             payload: message.payload.clone(),
@@ -264,6 +240,7 @@ fn map_broker_error(error: BrokerError) -> Response {
         BrokerError::TopicAlreadyExists => Response::Error("topic already exists".to_string()),
         BrokerError::UnknownTopic => Response::Error("unknown topic".to_string()),
         BrokerError::Io(e) => Response::Error(format!("io error: {e}")),
+        BrokerError::LockPoisoned => Response::Error("internal lock error".to_string()),
     }
 }
 

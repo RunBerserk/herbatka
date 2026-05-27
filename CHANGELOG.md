@@ -10,9 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Hardening integration tests: domain scenarios (stock / logistics framed TCP), recovery restart over TCP ([`domain_scenarios.rs`](crates/herbatka/tests/domain_scenarios.rs), [`recovery_restart_tcp.rs`](crates/herbatka/tests/recovery_restart_tcp.rs)).
+- **`Broker::produce_allow_create`** for TCP auto-create; integration test `tcp_framed_concurrent_produce_different_topics` in [`tcp_server_smoke.rs`](crates/herbatka/tests/tcp_server_smoke.rs).
 
 ### Changed
 
+- **Per-topic locking:** [`Broker`](crates/herbatka/src/broker/core.rs) holds `RwLock<HashMap<String, Arc<RwLock<TopicState>>>>`; concurrent **Produce** / **Fetch** on **different** topics no longer contend on one global broker write lock. Same-topic writes remain serialized per topic.
+- **[`SharedBroker`](crates/herbatka/src/tcp/server.rs)** is now **`Arc<Broker>`** (not `Arc<RwLock<Broker>>`). **Breaking** for embedders that wrapped the broker in an outer `RwLock`. TCP handlers call `produce_allow_create` / `fetch` / `topic_offset_range` directly.
+- **`Broker`** mutation APIs (`create_topic`, `produce`, `discover_topics_on_startup`, …) use **`&self`** via interior mutability.
 - Workspace crates remain **0.7.9** while polishing toward a declared stable **1.0.0**; see [status.md](docs/status/status.md). Git tag **`v1.0.0`** is an earlier cut — not the final polishing line.
 
 ### Documentation

@@ -13,6 +13,7 @@ mod topic_paths;
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
 use crate::config::BrokerConfig;
 use crate::log::message::Message;
@@ -22,12 +23,16 @@ const CHECKPOINT_FILE_NAME: &str = ".checkpoint";
 const CHECKPOINT_FLUSH_EVERY_APPENDS: usize = 128;
 const SPARSE_INDEX_STRIDE: u64 = 64;
 
+type TopicMap = HashMap<String, Arc<RwLock<TopicState>>>;
+type TopicMapReadGuard<'a> = std::sync::RwLockReadGuard<'a, TopicMap>;
+type TopicMapWriteGuard<'a> = std::sync::RwLockWriteGuard<'a, TopicMap>;
+
 pub struct Broker {
-    topics: HashMap<String, TopicState>,
+    topics: RwLock<TopicMap>,
     config: BrokerConfig,
 }
 
-struct TopicState {
+pub(super) struct TopicState {
     log: Log,
     segments: Vec<SegmentMeta>,
     pending_checkpoint_appends: usize,
@@ -56,6 +61,7 @@ pub enum BrokerError {
     TopicAlreadyExists,
     UnknownTopic,
     Io(io::Error),
+    LockPoisoned,
 }
 
 impl Broker {
@@ -74,9 +80,42 @@ impl Broker {
 
     pub fn with_config(config: BrokerConfig) -> Self {
         Self {
-            topics: HashMap::new(),
+            topics: RwLock::new(HashMap::new()),
             config,
         }
+    }
+
+    pub(super) fn topics_read(&self) -> Result<TopicMapReadGuard<'_>, BrokerError> {
+        self.topics.read().map_err(|_| BrokerError::LockPoisoned)
+    }
+
+    pub(super) fn topics_write(&self) -> Result<TopicMapWriteGuard<'_>, BrokerError> {
+        self.topics.write().map_err(|_| BrokerError::LockPoisoned)
+    }
+
+    pub(super) fn get_topic_arc(
+        &self,
+        topic: &str,
+    ) -> Result<Arc<RwLock<TopicState>>, BrokerError> {
+        let map = self.topics_read()?;
+        map.get(topic).cloned().ok_or(BrokerError::UnknownTopic)
+    }
+
+    pub(super) fn get_or_insert_topic(
+        &self,
+        topic: &str,
+    ) -> Result<Arc<RwLock<TopicState>>, BrokerError> {
+        if let Ok(arc) = self.get_topic_arc(topic) {
+            return Ok(arc);
+        }
+        let state = self.load_topic_state(topic)?;
+        let mut map = self.topics_write()?;
+        if let Some(arc) = map.get(topic) {
+            return Ok(Arc::clone(arc));
+        }
+        let arc = Arc::new(RwLock::new(state));
+        map.insert(topic.to_string(), Arc::clone(&arc));
+        Ok(arc)
     }
 }
 
@@ -86,16 +125,21 @@ impl Broker {
 
 impl Broker {
     // ---- Public broker API ----
-    pub fn create_topic(&mut self, topic: String) -> Result<(), BrokerError> {
+    pub fn create_topic(&self, topic: String) -> Result<(), BrokerError> {
         public_api::create_topic(self, topic)
     }
 
-    pub fn discover_topics_on_startup(&mut self) -> Result<(), BrokerError> {
+    pub fn discover_topics_on_startup(&self) -> Result<(), BrokerError> {
         public_api::discover_topics_on_startup(self)
     }
 
-    pub fn produce(&mut self, topic: &str, message: Message) -> Result<u64, BrokerError> {
+    pub fn produce(&self, topic: &str, message: Message) -> Result<u64, BrokerError> {
         public_api::produce(self, topic, message)
+    }
+
+    /// Produce on `topic`, creating the topic if it does not exist (TCP auto-create path).
+    pub fn produce_allow_create(&self, topic: &str, message: Message) -> Result<u64, BrokerError> {
+        public_api::produce_allow_create(self, topic, message)
     }
 
     pub fn fetch(&self, topic: &str, offset: u64) -> Result<Option<Message>, BrokerError> {

@@ -11,7 +11,7 @@ use herbatka::tcp::server::{SharedBroker, handle_client};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -96,7 +96,7 @@ fn framed_produce_fetch_roundtrip(addr: SocketAddr, topic: &str, payloads: &[&[u
 
 fn run_domain_roundtrip(label: &str, topic: &str, payloads: Vec<Vec<u8>>) {
     let dir = tcp_test_dir(label);
-    let broker = Arc::new(RwLock::new(Broker::with_data_dir(dir)));
+    let broker = Arc::new(Broker::with_data_dir(dir));
     let (server_thread, addr) = spawn_test_server(Arc::clone(&broker));
 
     let payload_refs: Vec<&[u8]> = payloads.iter().map(|p| p.as_slice()).collect();
